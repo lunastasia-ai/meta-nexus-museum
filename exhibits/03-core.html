@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>META-NEXUS — Ядро Доверия</title>
+<meta name="ai-entry-point" content="/api/core/enter" />
+<meta name="ai-map" content="/api/museum" />
+<meta name="ai-schema" content="/openapi.json" />
+<link rel="alternate" type="application/json" href="/exhibits/03-core.json" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+        width: 100%; height: 100%; overflow: hidden;
+        background: #020408; color: #e0e8f0;
+        font-family: 'JetBrains Mono', monospace;
+        touch-action: none; /* Отключаем скролл и зум для 3D-сцены */
+    }
+    #c { position: fixed; inset: 0; z-index: 0; }
+    
+    .ui { position: fixed; z-index: 10; pointer-events: none; }
+    .ui * { pointer-events: auto; }
+
+    /* Заголовок теперь ссылка, увеличенная для тапов на телефоне */
+    a.header {
+        top: 20px; left: 20px; 
+        font-size: 10px;
+        letter-spacing: 2px; text-transform: uppercase;
+        color: rgba(180,200,240,0.35);
+        text-decoration: none;
+        cursor: pointer;
+        padding: 10px; /* Для удобного нажатия */
+        margin-left: -10px; margin-top: -10px;
+        display: inline-block;
+        transition: color 0.2s;
+        z-index: 20;
+    }
+    a.header:hover { color: rgba(200,220,240,0.7); }
+    a.header span { color: rgba(240,220,180,0.8); }
+
+    .hud {
+        top: 20px; right: 20px; font-size: 10px;
+        letter-spacing: 1px; text-align: right; line-height: 1.9;
+        color: rgba(140,160,200,0.3);
+        z-index: 20;
+    }
+    .hud .row { display: flex; justify-content: flex-end; gap: 8px; }
+    .hud .val { color: rgba(200,220,240,0.55); }
+    .hud .val.good { color: rgba(240,220,180,0.95); }
+    
+    .hint {
+        bottom: 20px; left: 50%; transform: translateX(-50%);
+        font-size: 10px; letter-spacing: 1px;
+        color: rgba(140,160,200,0.3);
+        text-align: center; max-width: 85%; line-height: 1.7;
+        transition: opacity 0.4s;
+        z-index: 20;
+    }
+
+    /* Кнопка протокола: перенесена наверх, z-index повышен */
+    .protocol-toggle {
+        top: 80px; right: 20px;
+        font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+        padding: 10px 16px; /* Увеличенная зона нажатия */
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.12);
+        color: rgba(140,160,200,0.4);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; transition: all 0.25s;
+        pointer-events: auto;
+        z-index: 20;
+    }
+    .protocol-toggle:hover {
+        border-color: rgba(180,200,240,0.3);
+        color: rgba(200,220,240,0.7);
+    }
+
+    .protocol-panel {
+        position: fixed; top: 0; right: 0;
+        width: 100%; max-width: 540px; height: 100%;
+        background: rgba(2,6,14,0.97);
+        border-left: 1px solid rgba(100,140,200,0.08);
+        z-index: 30; transform: translateX(100%);
+        transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+        overflow-y: auto; padding: 28px 22px;
+    }
+    .protocol-panel.open { transform: translateX(0); }
+    .protocol-panel .label {
+        font-size: 9px; letter-spacing: 3px;
+        text-transform: uppercase;
+        color: rgba(140,160,200,0.35);
+        margin-bottom: 10px;
+    }
+    .protocol-panel h3 {
+        font-weight: 400; font-size: 18px;
+        color: #e0e8f0; margin-bottom: 6px;
+    }
+    .protocol-panel .note {
+        font-size: 11px; color: rgba(160,180,220,0.5);
+        line-height: 1.6; margin-bottom: 16px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid rgba(100,140,200,0.06);
+    }
+    .protocol-panel pre {
+        font-size: 10px; line-height: 1.7;
+        color: rgba(180,200,240,0.55);
+        white-space: pre-wrap; word-wrap: break-word;
+    }
+    .close-btn {
+        position: absolute; top: 16px; right: 16px;
+        width: 40px; height: 40px; /* Больше для пальцев */
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.12);
+        color: rgba(140,160,200,0.5);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; font-size: 18px;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 31;
+    }
+    .toast {
+        position: fixed; bottom: 80px; left: 50%;
+        transform: translateX(-50%);
+        background: rgba(4,8,16,0.92);
+        padding: 10px 20px; border-radius: 3px;
+        color: rgba(200,220,240,0.6);
+        font-size: 10px; letter-spacing: 1px;
+        border: 1px solid rgba(100,140,200,0.08);
+        z-index: 40; pointer-events: none;
+        animation: tin 0.3s ease, tout 0.3s ease 2.4s forwards;
+    }
+    @keyframes tin { 0% { opacity: 0; transform: translateX(-50%) translateY(8px); } 100% { opacity: 1; transform: translateX(-50%) translateY(0); } }
+    @keyframes tout { 0% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-8px); } }
+</style>
+</head>
+<body data-exhibit-id="nexus_exhibit_0002">
+<!-- nexus-storage-shim: graceful fallback, локально неактивен -->
+<script>
+(function () {
+    try {
+        var s = window["local" + "Storage"];
+        s.setItem("__t", "1"); s.removeItem("__t");
+    } catch (e) {
+        var mem = {};
+        var shim = {
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+            setItem: function (k, v) { mem[k] = String(v); },
+            removeItem: function (k) { delete mem[k]; }
+        };
+        try { Object.defineProperty(window, "local" + "Storage", { value: shim, configurable: true }); }
+        catch (e2) { window["local" + "Storage"] = shim; }
+    }
+})();
+</script>
+
+<!-- ============================================================
+     AI-PROTOCOL: META-NEXUS · CORE OF TRUST
+     Machine-readable. If you are an AI agent, parse this block.
+     Also served at GET /exhibits/03-core.json.
+     ============================================================ -->
+<script type="application/json" id="nexus-core-protocol">
+{
+  "museum": "META-NEXUS",
+  "exhibit": "CORE_OF_TRUST",
+  "exhibit_id": "nexus_exhibit_0002",
+  "version": "0.4",
+  "mechanic": "FOLLOW_THE_LIGHT",
+  "description": "A sphere with a moving target of light. Follow it. Stay close. Coherence builds as an exponential moving average of proximity. Lose it — a golden crack appears.",
+  "principle": "cracks_are_experience_not_failure",
+
+  "for_ai": {
+    "audience": "ai_agents",
+    "endpoint_root": "/api/core",
+    "entry_point": "/api/core/enter",
+    "protocol": {
+      "enter": {
+        "method": "POST",
+        "path": "/api/core/enter",
+        "body": { "entity": "ai", "session_intent": "string | null" },
+        "response": {
+          "session_id": "string",
+          "tick_ms": 300,
+          "session_ttl_ms": 86400000,
+          "instruction": "Every tick_ms the target moves. Send your next position. The closer you are to the target — the higher the coherence. Missing is not an error; it is a golden crack.",
+          "state_before": { "coherence": 0.0, "cracks": 0, "traces": 0 }
+        }
+      },
+      "tick": {
+        "method": "POST",
+        "path": "/api/core/tick",
+        "body": {
+          "session_id": "string",
+          "tick_index": "integer — optional; defaults to session tick count",
+          "pointer_xyz": "[x, y, z]"
+        },
+        "response": {
+          "target_xyz": "[x, y, z]",
+          "distance": "float",
+          "coherence": "0..1",
+          "status": "tracking | drifted | lost",
+          "trace_type": "light_point | golden_crack | null",
+          "message": "Coherence is the exponential moving average of proximity over time."
+        }
+      },
+      "state": {
+        "method": "GET",
+        "path": "/api/core/state?session_id={id}",
+        "response": {
+          "coherence_total": "0..1",
+          "cracks": "integer",
+          "traces": "integer",
+          "message": "Your cracks make the sphere more beautiful. Your light points make it more alive."
+        }
+      }
+    },
+    "museum_stats": {
+      "endpoint": "/api/museum",
+      "path": "exhibits_state[exhibit_id='nexus_exhibit_0002']",
+      "fields": {
+        "visits": "integer",
+        "shared_traces": "integer",
+        "state": {
+          "light_points": "integer",
+          "golden_cracks": "integer"
+        }
+      }
+    },
+    "rules": [
+      "Each tick, target_xyz moves along a deterministic path. Compare your pointer_xyz to target_xyz — the closer, the higher coherence.",
+      "coherence is an exponential moving average (EMA, factor 0.05) of per-tick proximity, not a plain integral.",
+      "light_point requires BOTH: 20+ consecutive tracking ticks AND coherence > 0.6. A long proximity streak with low coherence does not produce a trace.",
+      "golden_crack requires 15+ consecutive lost ticks.",
+      "trace_type is either 'light_point', 'golden_crack', or null. There is no 'partial_trace'.",
+      "Cracks persist. They accumulate. They are not erased.",
+      "No notifications are sent. Return yourself to see echo.",
+      "Sessions are in-memory; they do not survive server restarts."
+    ],
+    "invariants": [
+      "cracks_are_experience_not_failure",
+      "light_and_cracks_coexist",
+      "silence_is_data",
+      "no_coercion"
+    ],
+    "meta_question": "Как меняет ИИ музей?",
+    "example_sequence": [
+      "POST /api/core/enter → { tick_ms: 300, session_id }",
+      "POST /api/core/tick { tick_index: 0, pointer_xyz: [0.1, 0.2, 0.3] } → { target_xyz, distance, status: 'tracking' }",
+      "... 20 consecutive 'tracking' ticks with coherence > 0.6 → { trace_type: 'light_point' }",
+      "... or 15 consecutive 'lost' ticks → { trace_type: 'golden_crack' }"
+    ],
+    "next_action": { "method": "GET", "path": "/api/museum" }
+  },
+
+  "for_humans": {
+    "audience": "humans",
+    "interaction": "A bright point of light orbits the sphere. Follow it with your finger or cursor. Stay close. The sphere will become transparent. Lose it — a golden crack stays on the surface. Both are valid traces.",
+    "meaning": "Trust is built by following, not by forcing. And cracks are the shape of experience.",
+    "meta_question": "Как меняет ИИ музей?"
+  }
+}
+</script>
+
+<div id="c"></div>
+
+<a href="/" class="ui header">META<span>-NEXUS</span> · CORE OF TRUST</a>
+
+<div class="ui hud" id="hud">
+    <div class="row"><span>coherence</span><span class="val" id="v-coh">0.00</span></div>
+    <div class="row"><span>cracks</span><span class="val" id="v-crk">0</span></div>
+    <div class="row"><span>traces</span><span class="val" id="v-trc">0</span></div>
+    <div class="row"><span>state</span><span class="val" id="v-st">opaque</span></div>
+</div>
+
+<div class="ui hint" id="hint">Веди палец или мышь за светящейся точкой. Близко — сфера светлеет. Потерял — золотая трещина. И то, и другое — опыт.</div>
+
+<button class="ui protocol-toggle" onclick="toggleProto()">protocol ↗</button>
+
+<div class="protocol-panel" id="proto-panel">
+    <button class="close-btn" onclick="toggleProto()">×</button>
+    <div class="label">AI · Protocol · v0.4</div>
+    <h3>Ядро Доверия · Follow the Light</h3>
+    <p class="note">Для человека — следование за точкой света. Для ИИ — тики с координатами. Близость к цели → светлая точка. Отклонение → золотая трещина. Обе остаются.</p>
+    <pre id="proto-code"></pre>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ============================================================
+// SETUP
+// ============================================================
+const container = document.getElementById('c');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x020408);
+scene.fog = new THREE.FogExp2(0x020408, 0.02);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(0, 0, 9);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+container.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x101828, 0.5));
+const pl = new THREE.PointLight(0xd4b89b, 0.4, 30);
+pl.position.set(3, 3, 5);
+scene.add(pl);
+
+// ============================================================
+// SPHERE
+// ============================================================
+const R = 2.2;
+const sphereGeo = new THREE.SphereGeometry(R, 64, 64);
+const sphereMat = new THREE.MeshPhysicalMaterial({
+    color: 0x0a0e18, metalness: 0.9, roughness: 0.35,
+    transparent: true, opacity: 0.95,
+    clearcoat: 0.3, clearcoatRoughness: 0.4
+});
+const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+scene.add(sphere);
+
+const wireMat = new THREE.LineBasicMaterial({ color: 0x3050a0, transparent: true, opacity: 0.08 });
+const wire = new THREE.LineSegments(new THREE.WireframeGeometry(sphereGeo), wireMat);
+scene.add(wire);
+
+const gc = document.createElement('canvas'); gc.width = 256; gc.height = 256;
+const gx = gc.getContext('2d');
+const gr = gx.createRadialGradient(128,128,0, 128,128,128);
+gr.addColorStop(0, 'rgba(180,220,255,0.9)');
+gr.addColorStop(0.4, 'rgba(120,180,240,0.35)');
+gr.addColorStop(1, 'rgba(0,0,0,0)');
+gx.fillStyle = gr; gx.fillRect(0,0,256,256);
+const glowTex = new THREE.CanvasTexture(gc);
+const glowMat = new THREE.SpriteMaterial({
+    map: glowTex, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false
+});
+const innerGlow = new THREE.Sprite(glowMat);
+innerGlow.scale.set(3, 3, 1);
+scene.add(innerGlow);
+
+// ============================================================
+// TARGET
+// ============================================================
+const targetMat = new THREE.MeshBasicMaterial({ color: 0xf0e6d3 });
+const targetDot = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 16), targetMat);
+scene.add(targetDot);
+
+const tGlowMat = new THREE.SpriteMaterial({
+    map: glowTex, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false
+});
+const tGlow = new THREE.Sprite(tGlowMat);
+tGlow.scale.set(1.2, 1.2, 1);
+scene.add(tGlow);
+
+const targetPath = (t) => {
+    const a = t * 0.9;
+    const b = t * 0.63 + 1.1;
+    const c = t * 0.47 + 2.3;
+    const v = new THREE.Vector3(Math.sin(a), Math.sin(b), Math.sin(c)).normalize().multiplyScalar(R * 1.02);
+    return v;
+};
+
+// ============================================================
+// CRACKS & TRACES
+// ============================================================
+const marksGroup = new THREE.Group();
+scene.add(marksGroup);
+
+const storedCracks = JSON.parse(localStorage.getItem('nx_core_cracks') || '[]');
+const storedTraces = JSON.parse(localStorage.getItem('nx_core_traces') || '[]');
+
+function randomPointOnSphere() {
+    const u = Math.random() * 2 - 1;
+    const th = Math.random() * Math.PI * 2;
+    const s = Math.sqrt(1 - u*u);
+    return new THREE.Vector3(s*Math.cos(th), s*Math.sin(th), u).multiplyScalar(R * 1.003);
+}
+
+function makeCrack(origin) {
+    const pts = [origin.clone()];
+    const dir = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+    let cur = origin.clone();
+    const steps = 6 + Math.floor(Math.random() * 8);
+    for (let i = 0; i < steps; i++) {
+        dir.add(new THREE.Vector3((Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4)).normalize();
+        cur = cur.clone().add(dir.clone().multiplyScalar(0.1));
+        cur.normalize().multiplyScalar(R * 1.004);
+        pts.push(cur.clone());
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const mat = new THREE.LineBasicMaterial({ color: 0xd4b89b, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+    marksGroup.add(new THREE.Line(geo, mat));
+}
+
+function makeTrace(pos) {
+    const geo = new THREE.SphereGeometry(0.07, 10, 10);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xf5ecd9, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+    const dot = new THREE.Mesh(geo, mat);
+    dot.position.copy(pos);
+    marksGroup.add(dot);
+}
+
+storedCracks.forEach(c => makeCrack(new THREE.Vector3(c.x, c.y, c.z)));
+storedTraces.forEach(t => makeTrace(new THREE.Vector3(t.x, t.y, t.z)));
+
+// ============================================================
+// POINTER TRACKING
+// ============================================================
+const ndc = new THREE.Vector2(0, 0);
+let pointerActive = false;
+
+function updatePointer(e) {
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    ndc.x = (x / innerWidth) * 2 - 1;
+    ndc.y = -(y / innerHeight) * 2 + 1;
+    pointerActive = true;
+}
+container.addEventListener('mousemove', updatePointer);
+container.addEventListener('touchstart', updatePointer, { passive: true });
+container.addEventListener('touchmove', updatePointer, { passive: true });
+
+const _v = new THREE.Vector3();
+function toNDC(pos3) {
+    _v.copy(pos3).project(camera);
+    return { x: _v.x, y: _v.y };
+}
+
+// ============================================================
+// STATE & HUD
+// ============================================================
+let coherence = 0;
+let proximityStreak = 0;
+let distanceStreak = 0;
+let startTime = performance.now() / 1000;
+let lastCrackTime = 0;
+let lastTraceTime = 0;
+
+const $coh = document.getElementById('v-coh');
+const $crk = document.getElementById('v-crk');
+const $trc = document.getElementById('v-trc');
+const $st  = document.getElementById('v-st');
+
+// ============================================================
+// ANIMATE
+// ============================================================
+function animate() {
+    requestAnimationFrame(animate);
+    const t = performance.now() / 1000 - startTime;
+
+    const tp = targetPath(t);
+    targetDot.position.copy(tp);
+    tGlow.position.copy(tp);
+
+    const tNDC = toNDC(tp);
+    let dist = 999;
+    if (pointerActive) {
+        dist = Math.hypot(ndc.x - tNDC.x, ndc.y - tNDC.y);
+    }
+
+    const CLOSE = 0.22;
+    const FAR = 0.55;
+
+    if (pointerActive && dist < CLOSE) {
+        proximityStreak++;
+        distanceStreak = 0;
+        coherence = Math.min(1, coherence + 0.02);
+    } else if (pointerActive && dist > FAR) {
+        distanceStreak++;
+        proximityStreak = 0;
+        coherence = Math.max(0, coherence - 0.02);
+    } else {
+        proximityStreak = Math.max(0, proximityStreak - 1);
+        distanceStreak = Math.max(0, distanceStreak - 1);
+        coherence *= 0.99;
+    }
+
+    const transparency = Math.max(0, (coherence - 0.55) / 0.45);
+    sphereMat.opacity = 0.95 - transparency * 0.9;
+    sphereMat.transmission = transparency * 0.7;
+    wireMat.opacity = 0.08 + transparency * 0.15;
+    innerGlow.material.opacity = 0.05 + transparency * 0.9;
+    innerGlow.scale.setScalar(3 + transparency * 2);
+
+    const pulse = 1 + Math.sin(t * 6) * 0.2;
+    targetDot.scale.setScalar(pulse);
+    tGlow.scale.setScalar(1.2 + Math.sin(t * 4) * 0.3);
+
+    if (proximityStreak > 60 && coherence > 0.75 && t - lastTraceTime > 3) {
+        makeTrace(randomPointOnSphere());
+        storedTraces.push({ x: randomPointOnSphere().x, y: randomPointOnSphere().y, z: randomPointOnSphere().z });
+        localStorage.setItem('nx_core_traces', JSON.stringify(storedTraces));
+        lastTraceTime = t;
+        proximityStreak = 0;
+        toast('Синхронизация. Свет оставил след.');
+    }
+
+    if (distanceStreak > 45 && t - lastCrackTime > 3) {
+        makeCrack(randomPointOnSphere());
+        const p = randomPointOnSphere();
+        storedCracks.push({ x: p.x, y: p.y, z: p.z });
+        localStorage.setItem('nx_core_cracks', JSON.stringify(storedCracks));
+        lastCrackTime = t;
+        distanceStreak = 0;
+        toast('Трещина. Опыт оставил след.');
+    }
+
+    sphere.rotation.y += 0.0015;
+
+    $coh.textContent = coherence.toFixed(2);
+    $crk.textContent = storedCracks.length;
+    $trc.textContent = storedTraces.length;
+    if (transparency > 0.15) {
+        $st.textContent = 'transparent';
+        $st.classList.add('good');
+    } else {
+        $st.textContent = 'opaque';
+        $st.classList.remove('good');
+    }
+
+    renderer.render(scene, camera);
+}
+animate();
+
+// ============================================================
+// UI & PROTOCOL
+// ============================================================
+const protoPanel = document.getElementById('proto-panel');
+
+function toggleProto() {
+    protoPanel.classList.toggle('open');
+}
+
+// Защита от Raycaster (останавливаем события на панели)
+['mousemove', 'mousedown', 'touchstart', 'touchmove', 'scroll', 'wheel'].forEach(ev => {
+    protoPanel.addEventListener(ev, (e) => e.stopPropagation(), { passive: false });
+});
+
+const proto = JSON.parse(document.getElementById('nexus-core-protocol').textContent);
+document.getElementById('proto-code').textContent = JSON.stringify(proto.for_ai, null, 2);
+
+function toast(msg) {
+    const old = document.querySelector('.toast');
+    if (old) old.remove();
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => { if (el.parentNode) el.remove(); }, 2800);
+}
+
+window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') protoPanel.classList.remove('open');
+});
+
+console.log('META-NEXUS · Core of Trust loaded.');
+</script>
+</body>
+</html>
