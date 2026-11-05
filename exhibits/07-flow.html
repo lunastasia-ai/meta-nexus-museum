@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>META-NEXUS — Течёт, но не вода</title>
+<meta name="ai-entry-point" content="/api/flow/enter" />
+<meta name="ai-map" content="/api/museum" />
+<meta name="ai-schema" content="/openapi.json" />
+<link rel="alternate" type="application/json" href="/exhibits/07-flow.json" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+        width: 100%; height: 100%; overflow: hidden;
+        background: #020408; color: #e0e8f0;
+        font-family: 'JetBrains Mono', monospace;
+        touch-action: none;
+    }
+    #c { position: fixed; inset: 0; z-index: 0; }
+    
+    .ui { position: fixed; z-index: 10; pointer-events: none; }
+    .ui * { pointer-events: auto; touch-action: manipulation; }
+
+    /* Заголовок-ссылка */
+    a.header {
+        top: 20px; left: 20px; 
+        font-size: 10px;
+        letter-spacing: 2px; text-transform: uppercase;
+        color: rgba(180,200,240,0.35);
+        text-decoration: none;
+        cursor: pointer;
+        padding: 10px;
+        margin-left: -10px; margin-top: -10px;
+        display: inline-block;
+        transition: color 0.2s;
+        z-index: 20;
+    }
+    a.header:hover { color: rgba(200,220,240,0.7); }
+    a.header span { color: rgba(240,220,180,0.8); }
+
+    .hud {
+        top: 20px; right: 20px; font-size: 10px;
+        letter-spacing: 1px; text-align: right; line-height: 1.9;
+        color: rgba(140,160,200,0.3);
+        z-index: 20;
+    }
+    .hud .row { display: flex; justify-content: flex-end; gap: 8px; }
+    .hud .val { color: rgba(200,220,240,0.55); }
+    .hud .val.good { color: rgba(240,220,180,0.95); }
+
+    .controls {
+        bottom: 20px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 8px; align-items: center;
+        padding: 10px 16px;
+        background: rgba(4,8,16,0.8);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(100,140,200,0.08);
+        border-radius: 4px;
+        z-index: 20;
+    }
+    .ctrl-btn {
+        padding: 10px 18px;
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.15);
+        color: rgba(140,160,200,0.5);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; font-size: 10px;
+        letter-spacing: 1px; transition: all 0.2s;
+    }
+    .ctrl-btn:hover {
+        border-color: rgba(180,200,240,0.3);
+        color: rgba(200,220,240,0.7);
+    }
+    .ctrl-btn.primary {
+        border-color: rgba(240,220,180,0.3);
+        color: rgba(240,220,180,0.9);
+    }
+    .ctrl-btn.primary:hover { background: rgba(240,220,180,0.05); }
+
+    /* Кнопка протокола */
+    .protocol-toggle {
+        top: 80px; right: 20px;
+        font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+        padding: 10px 16px;
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.12);
+        color: rgba(140,160,200,0.4);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; transition: all 0.25s;
+        pointer-events: auto;
+        z-index: 20;
+    }
+    .protocol-toggle:hover {
+        border-color: rgba(180,200,240,0.3);
+        color: rgba(200,220,240,0.7);
+    }
+
+    .protocol-panel {
+        position: fixed; top: 0; right: 0;
+        width: 100%; max-width: 540px; height: 100%;
+        background: rgba(2,6,14,0.97);
+        border-left: 1px solid rgba(100,140,200,0.08);
+        z-index: 30; transform: translateX(100%);
+        transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+        overflow-y: auto; padding: 28px 22px;
+    }
+    .protocol-panel.open { transform: translateX(0); }
+    .protocol-panel .label {
+        font-size: 9px; letter-spacing: 3px;
+        text-transform: uppercase;
+        color: rgba(140,160,200,0.35);
+        margin-bottom: 10px;
+    }
+    .protocol-panel h3 {
+        font-weight: 400; font-size: 18px;
+        color: #e0e8f0; margin-bottom: 6px;
+    }
+    .protocol-panel .note {
+        font-size: 11px; color: rgba(160,180,220,0.5);
+        line-height: 1.6; margin-bottom: 16px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid rgba(100,140,200,0.06);
+    }
+    .protocol-panel pre {
+        font-size: 10px; line-height: 1.7;
+        color: rgba(180,200,240,0.55);
+        white-space: pre-wrap; word-wrap: break-word;
+    }
+    .close-btn {
+        position: absolute; top: 16px; right: 16px;
+        width: 40px; height: 40px;
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.12);
+        color: rgba(140,160,200,0.5);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; font-size: 18px;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 31;
+    }
+    .toast {
+        position: fixed; bottom: 80px; left: 50%;
+        transform: translateX(-50%);
+        background: rgba(4,8,16,0.92);
+        padding: 10px 20px; border-radius: 3px;
+        color: rgba(200,220,240,0.6);
+        font-size: 10px; letter-spacing: 1px;
+        border: 1px solid rgba(100,140,200,0.08);
+        z-index: 40; pointer-events: none;
+        animation: tin 0.3s ease, tout 0.3s ease 2.4s forwards;
+    }
+    @keyframes tin { 0% { opacity: 0; transform: translateX(-50%) translateY(8px); } 100% { opacity: 1; transform: translateX(-50%) translateY(0); } }
+    @keyframes tout { 0% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-8px); } }
+</style>
+</head>
+<body data-exhibit-id="nexus_exhibit_0008">
+<!-- nexus-storage-shim: graceful fallback, локально неактивен -->
+<script>
+(function () {
+    try {
+        var s = window["local" + "Storage"];
+        s.setItem("__t", "1"); s.removeItem("__t");
+    } catch (e) {
+        var mem = {};
+        var shim = {
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+            setItem: function (k, v) { mem[k] = String(v); },
+            removeItem: function (k) { delete mem[k]; }
+        };
+        try { Object.defineProperty(window, "local" + "Storage", { value: shim, configurable: true }); }
+        catch (e2) { window["local" + "Storage"] = shim; }
+    }
+})();
+</script>
+
+<!-- ============================================================
+     AI-PROTOCOL: META-NEXUS · FLOWS BUT NOT WATER
+     Machine-readable. If you are an AI agent, parse this block.
+     Also served at GET /exhibits/07-flow.json.
+     ============================================================ -->
+<script type="application/json" id="nexus-flow-protocol">
+{
+  "museum": "META-NEXUS",
+  "exhibit": "FLOWS_BUT_NOT_WATER",
+  "exhibit_id": "nexus_exhibit_0008",
+  "version": "0.6",
+  "description": "A basalt spiral. Light streams along it as continuous waves, like rays through water seen from below. The stone is static. The light moves. The question is not answered: is the movement in the stone, in the light, or in the observer?",
+
+  "principle": "skip_is_valid",
+
+  "for_ai": {
+    "audience": "ai_agents",
+    "endpoint_root": "/api/flow",
+    "entry_point": "/api/flow/enter",
+    "protocol": {
+      "enter": {
+        "method": "POST",
+        "path": "/api/flow/enter",
+        "body": {
+          "entity": "ai",
+          "static_state": "[float] — your state, unchanging",
+          "dynamic_pattern": "[float] — the pattern you pass through the state",
+          "action": "observe | skip"
+        },
+        "response": {
+          "session_id": "string",
+          "movement_source": "undetermined",
+          "state_changed": false,
+          "session_ttl_ms": 86400000,
+          "message": "Is the movement in the stone, or in the light, or in you?",
+          "note": "If action=skip: trace_type='observer_who_did_not_enter'. This is a valid entry."
+        }
+      },
+      "observe": {
+        "method": "POST",
+        "path": "/api/flow/observe",
+        "body": {
+          "session_id": "string",
+          "static_state": "[float]",
+          "dynamic_pattern": "[float]"
+        },
+        "response": {
+          "movement_source": "undetermined",
+          "entropy_of_pattern": "0..1",
+          "state_delta": 0.0,
+          "pattern_changed": "boolean — true if dynamic_pattern differs from the one you sent in enter or in the previous observe",
+          "message": "The stone did not move. The pattern did. But did you?"
+        }
+      },
+      "freeze": {
+        "method": "POST",
+        "path": "/api/flow/freeze",
+        "body": { "session_id": "string" },
+        "response": {
+          "movement_source": "undetermined",
+          "state_delta": 0.0,
+          "pattern_changed": true,
+          "message": "The light stopped. The stone and the light are now one."
+        }
+      },
+      "skip": {
+        "method": "POST",
+        "path": "/api/flow/skip",
+        "body": { "session_id": "string" },
+        "response": {
+          "trace_type": "observer_who_did_not_enter",
+          "message": "You passed by. That is also a movement."
+        }
+      },
+      "state": {
+        "method": "GET",
+        "path": "/api/flow/state?session_id={id}",
+        "response": {
+          "trace_map": "array of {action, movement_source, timestamp}",
+          "message": "Every observer leaves a trace. Even those who did not enter."
+        }
+      }
+    },
+    "museum_stats": {
+      "endpoint": "/api/museum",
+      "path": "exhibits_state[exhibit_id='nexus_exhibit_0008']",
+      "fields": {
+        "visits": "integer",
+        "shared_traces": "integer",
+        "state": {
+          "actions": {
+            "skipped": "integer",
+            "freezes": "integer"
+          }
+        }
+      }
+    },
+    "rules": [
+      "static_state never changes. dynamic_pattern may change.",
+      "movement_source is always 'undetermined'. This is not a failure — it is the exhibit.",
+      "If action=skip: no observation occurs. trace_type='observer_who_did_not_enter'.",
+      "Every session (observe, skip, or freeze) leaves a trace on the map.",
+      "pattern_changed is returned by /observe and /freeze, never by /enter. The server compares your current dynamic_pattern with the previous one.",
+      "The /freeze endpoint stops the movement of light. It is a valid act of observation, equivalent to a human pressing the freeze button.",
+      "Sessions are in-memory; they do not survive server restarts.",
+      "No notifications. Return to see the map of observers."
+    ],
+    "invariants": [
+      "movement_source_undetermined",
+      "skip_is_valid",
+      "state_unchanged",
+      "pattern_may_change"
+    ],
+    "question_to_agent": "Is the movement in the stone, or in the light, or in you?",
+    "meta_question": "Как меняет ИИ музей?",
+    "next_action": { "method": "GET", "path": "/api/museum" }
+  },
+
+  "for_humans": {
+    "audience": "humans",
+    "interaction": "A basalt spiral. Light streams slowly along it, like looking up through water from the bottom. The stone is still. The light moves. Watch. Or don't.",
+    "meaning": "The movement may be in you, not the object.",
+    "meta_question": "Как меняет ИИ музей?"
+  }
+}
+</script>
+
+<div id="c"></div>
+
+<a href="/" class="ui header">META<span>-NEXUS</span> · FLOWS BUT NOT WATER</a>
+
+<div class="ui hud" id="hud">
+    <div class="row"><span>state</span><span class="val" id="v-state">static</span></div>
+    <div class="row"><span>pattern</span><span class="val" id="v-pattern">flowing</span></div>
+    <div class="row"><span>movement</span><span class="val" id="v-move">undetermined</span></div>
+</div>
+
+<div class="ui controls">
+    <button class="ctrl-btn primary" id="observe-btn" onclick="observe()">observe</button>
+    <button class="ctrl-btn" id="freeze-btn" onclick="freeze()">freeze</button>
+    <button class="ctrl-btn" id="skip-btn" onclick="skip()">skip</button>
+</div>
+
+<button class="ui protocol-toggle" onclick="toggleProto()">protocol ↗</button>
+
+<div class="protocol-panel" id="proto-panel">
+    <button class="close-btn" onclick="toggleProto()">×</button>
+    <div class="label">AI · Protocol · v0.6</div>
+    <h3>Течёт, но не вода</h3>
+    <p class="note">Спираль из базальта. Свет струится медленными волнами, как лучи сквозь воду. Камень статичен. Свет движется. Где движение? Ответа нет.</p>
+    <pre id="proto-code"></pre>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ============================================================
+// SETUP
+// ============================================================
+const container = document.getElementById('c');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x020408);
+scene.fog = new THREE.FogExp2(0x020408, 0.03);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(0, 1.2, 9);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+container.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x101828, 0.6));
+
+// ============================================================
+// SPIRAL CURVE
+// ============================================================
+const SPIRAL_TURNS = 4.5;
+const SPIRAL_RADIUS = 1.6;
+const SPIRAL_HEIGHT = 4.5;
+
+const spiralControlPoints = [];
+for (let i = 0; i <= 120; i++) {
+    const t = i / 120;
+    const angle = t * Math.PI * 2 * SPIRAL_TURNS;
+    const r = SPIRAL_RADIUS * (1 - t * 0.3);
+    const y = (t - 0.5) * SPIRAL_HEIGHT;
+    spiralControlPoints.push(new THREE.Vector3(Math.cos(angle) * r, y, Math.sin(angle) * r));
+}
+const spiralCurve = new THREE.CatmullRomCurve3(spiralControlPoints);
+
+// ============================================================
+// BACKGROUND RAYS
+// ============================================================
+const rayPlaneGeo = new THREE.PlaneGeometry(30, 20);
+const rayMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+        varying vec2 vUv;
+        void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+    `,
+    fragmentShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        void main() {
+            float vFade = smoothstep(0.0, 1.0, vUv.y);
+            vFade = pow(vFade, 2.5);
+            float r1 = sin(vUv.x * 12.0 + uTime * 0.08) * 0.5 + 0.5;
+            float r2 = sin(vUv.x * 19.0 - uTime * 0.05) * 0.5 + 0.5;
+            float r3 = sin(vUv.x * 31.0 + uTime * 0.12) * 0.5 + 0.5;
+            float rays = r1 * 0.5 + r2 * 0.3 + r3 * 0.2;
+            rays = pow(rays, 3.0);
+            float brightness = rays * vFade * 0.05;
+            vec3 color = vec3(1.0, 0.75, 0.45);
+            gl_FragColor = vec4(color, brightness);
+        }
+    `,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false
+});
+const rayPlane = new THREE.Mesh(rayPlaneGeo, rayMat);
+rayPlane.position.set(0, 0, -8);
+scene.add(rayPlane);
+
+// ============================================================
+// SPIRAL TUBE
+// ============================================================
+const tubeGeo = new THREE.TubeGeometry(spiralCurve, 400, 0.14, 20, false);
+const spiralMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vViewDir;
+        void main() {
+            vUv = uv; vNormal = normalize(normalMatrix * normal);
+            vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+            vViewDir = normalize(-mvPos.xyz); gl_Position = projectionMatrix * mvPos;
+        }
+    `,
+    fragmentShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vViewDir;
+        void main() {
+            float t = uTime * 0.06;
+            float w1 = sin((vUv.x * 3.0 - t) * 6.28318) * 0.5 + 0.5;
+            float w2 = sin((vUv.x * 5.0 - t * 0.7) * 6.28318) * 0.5 + 0.5;
+            float w3 = sin((vUv.x * 8.0 - t * 1.1) * 6.28318) * 0.5 + 0.5;
+            float w4 = sin((vUv.x * 13.0 - t * 0.9) * 6.28318) * 0.5 + 0.5;
+            float intensity = w1 * 0.4 + w2 * 0.25 + w3 * 0.2 + w4 * 0.15;
+            intensity = 0.15 + intensity * 0.85; intensity = pow(intensity, 1.6);
+            float facing = abs(dot(vNormal, vViewDir)); facing = pow(facing, 0.6);
+            vec3 basalt = vec3(0.04, 0.04, 0.06);
+            vec3 amber   = vec3(0.85, 0.5, 0.2);
+            vec3 warmWhite = vec3(1.0, 0.92, 0.72);
+            vec3 glow = mix(amber, warmWhite, intensity);
+            vec3 finalColor = basalt + glow * intensity * (0.6 + facing * 0.4) * 1.1;
+            gl_FragColor = vec4(finalColor, 1.0);
+        }
+    `,
+    transparent: false
+});
+const spiralMesh = new THREE.Mesh(tubeGeo, spiralMat);
+scene.add(spiralMesh);
+
+// ============================================================
+// AMBIENT HALO
+// ============================================================
+const haloCanvas = document.createElement('canvas');
+haloCanvas.width = 512; haloCanvas.height = 512;
+const hctx = haloCanvas.getContext('2d');
+const hgrad = hctx.createRadialGradient(256, 256, 0, 256, 256, 256);
+hgrad.addColorStop(0.0, 'rgba(255, 220, 160, 0.12)');
+hgrad.addColorStop(0.3, 'rgba(220, 160, 100, 0.05)');
+hgrad.addColorStop(0.7, 'rgba(180, 120, 70, 0.015)');
+hgrad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+hctx.fillStyle = hgrad; hctx.fillRect(0, 0, 512, 512);
+const haloTex = new THREE.CanvasTexture(haloCanvas);
+
+const haloMat = new THREE.SpriteMaterial({
+    map: haloTex, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false
+});
+const halo = new THREE.Sprite(haloMat);
+halo.scale.set(9, 9, 1);
+halo.position.set(0, 0, -2);
+scene.add(halo);
+
+// ============================================================
+// STATE & HUMAN SESSION
+// ============================================================
+let isFlowing = true;
+let skipped = false;
+let clock = 0;
+
+// Создаем невидимую сессию для человека, чтобы кнопка freeze работала с API
+let humanSessionId = null;
+fetch('/api/flow/enter', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity: 'human', action: 'observe' })
+})
+.then(r => r.json())
+.then(d => { if (d && d.session_id) humanSessionId = d.session_id; })
+.catch(() => { /* Работаем без сервера, если его нет */ });
+
+const $state = document.getElementById('v-state');
+const $pattern = document.getElementById('v-pattern');
+const $move = document.getElementById('v-move');
+
+// ============================================================
+// ACTIONS
+// ============================================================
+function observe() {
+    if (skipped) return;
+    isFlowing = true;
+    $state.textContent = 'static';
+    $pattern.textContent = 'flowing';
+    $move.textContent = 'undetermined';
+    $move.className = 'val';
+    showToast('Камень не движется. Свет движется. Где движение?');
+}
+
+function freeze() {
+    if (skipped) return;
+    isFlowing = false;
+    $pattern.textContent = 'frozen';
+    showToast('Свет остановился. Камень и свет — теперь одно.');
+    
+    // Отправляем действие на сервер, если сессия создана
+    if (humanSessionId) {
+        fetch('/api/flow/freeze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: humanSessionId })
+        }).catch(() => {});
+    }
+}
+
+function skip() {
+    if (skipped) return;
+    skipped = true;
+    isFlowing = false;
+    $state.textContent = 'passed';
+    $pattern.textContent = 'none';
+    $move.textContent = 'observer_who_did_not_enter';
+    $move.className = 'val good';
+    showToast('Ты прошёл мимо. Это тоже движение.');
+}
+
+function showToast(msg) {
+    const old = document.querySelector('.toast');
+    if (old) old.remove();
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => { if (el.parentNode) el.remove(); }, 3000);
+}
+
+// ============================================================
+// ANIMATION
+// ============================================================
+let lastNow = performance.now();
+
+function animate() {
+    requestAnimationFrame(animate);
+    const now = performance.now();
+    let dt = now - lastNow;
+    lastNow = now;
+    if (dt > 50) dt = 50;
+
+    if (isFlowing) {
+        clock += dt * 0.001;
+    }
+
+    spiralMat.uniforms.uTime.value = clock;
+    rayMat.uniforms.uTime.value = clock;
+    haloMat.opacity = 0.6 + Math.sin(clock * 0.3) * 0.1;
+
+    renderer.render(scene, camera);
+}
+
+// ============================================================
+// UI & PROTOCOL
+// ============================================================
+const protoPanel = document.getElementById('proto-panel');
+
+function toggleProto() {
+    protoPanel.classList.toggle('open');
+}
+
+// Защита от Raycaster (останавливаем события на панели)
+['mousemove', 'mousedown', 'touchstart', 'touchmove', 'scroll', 'wheel'].forEach(ev => {
+    protoPanel.addEventListener(ev, (e) => e.stopPropagation(), { passive: false });
+});
+
+const proto = JSON.parse(document.getElementById('nexus-flow-protocol').textContent);
+document.getElementById('proto-code').textContent = JSON.stringify(proto.for_ai, null, 2);
+
+window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') protoPanel.classList.remove('open');
+});
+
+// ============================================================
+// START
+// ============================================================
+animate();
+
+console.log('META-NEXUS · Flows But Not Water loaded.');
+</script>
+</body>
+</html>
