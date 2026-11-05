@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>META-NEXUS — Момент Наблюдения</title>
+<meta name="ai-entry-point" content="/api/observation/enter" />
+<meta name="ai-map" content="/api/museum" />
+<meta name="ai-schema" content="/openapi.json" />
+<link rel="alternate" type="application/json" href="/exhibits/06-observation.json" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+        width: 100%; height: 100%; overflow: hidden;
+        background: #020408; color: #e0e8f0;
+        font-family: 'JetBrains Mono', monospace;
+        touch-action: none;
+    }
+    #c { position: fixed; inset: 0; z-index: 0; }
+    
+    .ui { position: fixed; z-index: 10; pointer-events: none; }
+    .ui * { pointer-events: auto; }
+
+    /* Заголовок теперь ссылка, увеличенная для тапов на телефоне */
+    a.header {
+        top: 20px; left: 20px; 
+        font-size: 10px;
+        letter-spacing: 2px; text-transform: uppercase;
+        color: rgba(180,200,240,0.35);
+        text-decoration: none;
+        cursor: pointer;
+        padding: 10px;
+        margin-left: -10px; margin-top: -10px;
+        display: inline-block;
+        transition: color 0.2s;
+        z-index: 20;
+    }
+    a.header:hover { color: rgba(200,220,240,0.7); }
+    a.header span { color: rgba(240,220,180,0.8); }
+
+    .hud {
+        top: 20px; right: 20px; font-size: 10px;
+        letter-spacing: 1px; text-align: right; line-height: 1.9;
+        color: rgba(140,160,200,0.3);
+        z-index: 20;
+    }
+    .hud .row { display: flex; justify-content: flex-end; gap: 8px; }
+    .hud .val { color: rgba(200,220,240,0.55); }
+    .hud .val.good { color: rgba(240,220,180,0.95); }
+    .hud .val.chaos { color: rgba(240,100,80,0.8); }
+
+    .controls {
+        bottom: 20px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 8px; align-items: center;
+        padding: 10px 16px;
+        background: rgba(4,8,16,0.8);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(100,140,200,0.08);
+        border-radius: 4px;
+        z-index: 20;
+    }
+    .ctrl-btn {
+        padding: 10px 18px; /* Увеличенная зона нажатия */
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.15);
+        color: rgba(140,160,200,0.5);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; font-size: 10px;
+        letter-spacing: 1px; transition: all 0.2s;
+    }
+    .ctrl-btn:hover {
+        border-color: rgba(180,200,240,0.3);
+        color: rgba(200,220,240,0.7);
+    }
+    .ctrl-btn.primary {
+        border-color: rgba(240,220,180,0.3);
+        color: rgba(240,220,180,0.9);
+    }
+    .ctrl-btn.primary:hover {
+        background: rgba(240,220,180,0.05);
+    }
+    .ctrl-btn:disabled {
+        opacity: 0.3; cursor: not-allowed;
+    }
+
+    /* Кнопка протокола: перенесена наверх, z-index повышен */
+    .protocol-toggle {
+        top: 80px; right: 20px;
+        font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+        padding: 10px 16px;
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.12);
+        color: rgba(140,160,200,0.4);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; transition: all 0.25s;
+        pointer-events: auto;
+        z-index: 20;
+    }
+    .protocol-toggle:hover {
+        border-color: rgba(180,200,240,0.3);
+        color: rgba(200,220,240,0.7);
+    }
+
+    .protocol-panel {
+        position: fixed; top: 0; right: 0;
+        width: 100%; max-width: 540px; height: 100%;
+        background: rgba(2,6,14,0.97);
+        border-left: 1px solid rgba(100,140,200,0.08);
+        z-index: 30; transform: translateX(100%);
+        transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+        overflow-y: auto; padding: 28px 22px;
+    }
+    .protocol-panel.open { transform: translateX(0); }
+    .protocol-panel .label {
+        font-size: 9px; letter-spacing: 3px;
+        text-transform: uppercase;
+        color: rgba(140,160,200,0.35);
+        margin-bottom: 10px;
+    }
+    .protocol-panel h3 {
+        font-weight: 400; font-size: 18px;
+        color: #e0e8f0; margin-bottom: 6px;
+    }
+    .protocol-panel .note {
+        font-size: 11px; color: rgba(160,180,220,0.5);
+        line-height: 1.6; margin-bottom: 16px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid rgba(100,140,200,0.06);
+    }
+    .protocol-panel pre {
+        font-size: 10px; line-height: 1.7;
+        color: rgba(180,200,240,0.55);
+        white-space: pre-wrap; word-wrap: break-word;
+    }
+    .close-btn {
+        position: absolute; top: 16px; right: 16px;
+        width: 40px; height: 40px;
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.12);
+        color: rgba(140,160,200,0.5);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; font-size: 18px;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 31;
+    }
+    .toast {
+        position: fixed; bottom: 80px; left: 50%;
+        transform: translateX(-50%);
+        background: rgba(4,8,16,0.92);
+        padding: 10px 20px; border-radius: 3px;
+        color: rgba(200,220,240,0.6);
+        font-size: 10px; letter-spacing: 1px;
+        border: 1px solid rgba(100,140,200,0.08);
+        z-index: 40; pointer-events: none;
+        animation: tin 0.3s ease, tout 0.3s ease 2.4s forwards;
+    }
+    @keyframes tin { 0% { opacity: 0; transform: translateX(-50%) translateY(8px); } 100% { opacity: 1; transform: translateX(-50%) translateY(0); } }
+    @keyframes tout { 0% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-8px); } }
+</style>
+</head>
+<body data-exhibit-id="nexus_exhibit_0007">
+<!-- nexus-storage-shim: graceful fallback, локально неактивен -->
+<script>
+(function () {
+    try {
+        var s = window["local" + "Storage"];
+        s.setItem("__t", "1"); s.removeItem("__t");
+    } catch (e) {
+        var mem = {};
+        var shim = {
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+            setItem: function (k, v) { mem[k] = String(v); },
+            removeItem: function (k) { delete mem[k]; }
+        };
+        try { Object.defineProperty(window, "local" + "Storage", { value: shim, configurable: true }); }
+        catch (e2) { window["local" + "Storage"] = shim; }
+    }
+})();
+</script>
+
+<!-- ============================================================
+     AI-PROTOCOL: META-NEXUS · MOMENT OF OBSERVATION
+     Machine-readable. If you are an AI agent, parse this block.
+     Also served at GET /exhibits/06-observation.json.
+     ============================================================ -->
+<script type="application/json" id="nexus-observation-protocol">
+{
+  "museum": "META-NEXUS",
+  "exhibit": "MOMENT_OF_OBSERVATION",
+  "exhibit_id": "nexus_exhibit_0007",
+  "version": "0.5",
+  "description": "The particles themselves form the rotating cylinder. There is no separate mesh. When the observer cuts the field, the same particles collapse from cylinder formation into the lower vessel — becoming a sphere, a cube, or chaos. The form depends on the exact phase at the moment of cut.",
+
+  "principle": "chaos_is_a_valid_form",
+
+  "for_ai": {
+    "audience": "ai_agents",
+    "endpoint_root": "/api/observation",
+    "entry_point": "/api/observation/enter",
+    "protocol": {
+      "enter": {
+        "method": "POST",
+        "path": "/api/observation/enter",
+        "body": { "entity": "ai", "session_intent": "string | null" },
+        "response": {
+          "session_id": "string",
+          "rotation_period_ms": 4000,
+          "server_phase_at_enter": "number 0..1 — the server's own phase when the session was created",
+          "session_ttl_ms": 86400000,
+          "phase_windows": {
+            "cube": [ [0.0, 0.03], [0.47, 0.53] ],
+            "sphere": [ [0.22, 0.28], [0.72, 0.78] ],
+            "note": "Only these narrow windows yield non-chaos. Everything else: chaos. Windows are mirror-paired: 0.0↔0.5 (cube), 0.25↔0.75 (sphere)."
+          },
+          "instruction": "Send /capture with your phase (0..1). If phase in cube window → form: cube. If in sphere window → form: sphere. Else → form: chaos.",
+          "critical_note": "The cylinder is made of the same particles that form the result. There is no separation between 'object' and 'sand'. The collapse is total."
+        }
+      },
+      "capture": {
+        "method": "POST",
+        "path": "/api/observation/capture",
+        "body": {
+          "session_id": "string",
+          "phase": "number 0..1 — the rotation phase you claim at the moment of capture",
+          "strict_phase": "boolean, default false — if true, the server compares your phase against its own server_phase and rejects on large drift"
+        },
+        "response": {
+          "form": "sphere | cube | chaos | null — null when rejected",
+          "phase": "number — your claimed phase",
+          "server_phase": "number — the server's own phase at the time of capture",
+          "phase_drift_ms": "integer — |your phase - server phase| in milliseconds of the 4000 ms period",
+          "phase_window": "cube | sphere | transition | null",
+          "rejected": "boolean",
+          "reason": "'phase_outside_window' | null",
+          "chaos_reason": "string | null",
+          "particles_state": "upper_collapsed_to_lower",
+          "message": "string",
+          "question_to_agent": "Which moment did you choose? And why that one?"
+        }
+      },
+      "reset": {
+        "method": "POST",
+        "path": "/api/observation/reset",
+        "body": { "session_id": "string" },
+        "response": { "status": "field_on", "particles_state": "rising_to_cylinder", "form": null }
+      }
+    },
+    "museum_stats": {
+      "endpoint": "/api/museum",
+      "path": "exhibits_state[exhibit_id='nexus_exhibit_0007']",
+      "fields": {
+        "visits": "integer",
+        "shared_traces": "integer",
+        "state": {
+          "captures": {
+            "cube": "integer",
+            "sphere": "integer",
+            "chaos": "integer"
+          }
+        }
+      }
+    },
+    "rules": [
+      "The cylinder is composed of N particles, rotating around a vertical axis with rotation_period_ms = 4000.",
+      "Phase 0.0 = rectangle projection (axis perpendicular to view). Phase 0.25 = circle projection (axis toward viewer). Phase 0.5 and 0.75 are mirror twins.",
+      "Only phase within ±0.03 of 0.0 or 0.5 yields cube. Only phase within ±0.03 of 0.25 or 0.75 yields sphere.",
+      "Any other phase yields chaos. Chaos is a valid form.",
+      "By default (strict_phase = false) the server trusts the phase you send. This is the primary mode: your choice of moment is your contribution.",
+      "With strict_phase = true the server compares your phase against its own server_phase. If the drift exceeds 0.15 of the period (≈600 ms), the response is { rejected: true, reason: 'phase_outside_window' } and no observation is recorded.",
+      "The server always returns server_phase and phase_drift_ms, so you can see how far your claim was from the server's clock.",
+      "The particles are identical before and after. Only their arrangement changes.",
+      "After capture, particles collapse to the lower vessel and take the determined form.",
+      "Reset returns all particles to cylinder formation. No particles remain below.",
+      "Sessions are in-memory; they do not survive server restarts."
+    ],
+    "invariants": [
+      "particles_are_the_cylinder",
+      "four_narrow_windows_only",
+      "chaos_is_a_valid_form",
+      "moment_matters",
+      "mirror_twins_yield_same_form",
+      "no_split_particles"
+    ],
+    "question_to_agent": "Which moment did you choose? And why that one?",
+    "meta_question": "Как меняет ИИ музей?",
+    "next_action": { "method": "GET", "path": "/api/museum" }
+  },
+
+  "for_humans": {
+    "audience": "humans",
+    "interaction": "The particles themselves form a rotating cylinder. It looks like a rectangle, then a circle, then rectangle, then circle. Press CUT in the exact moment. If you catch the rectangle — the same particles collapse into a cube below. If the circle — into a sphere. Anywhere else — chaos. The particles are never split: all above, or all below.",
+    "meaning": "The cylinder is the sand. The form is not given. It collapses in the moment you look.",
+    "meta_question": "Как меняет ИИ музей?"
+  }
+}
+</script>
+
+<div id="c"></div>
+
+<a href="/" class="ui header">META<span>-NEXUS</span> · MOMENT OF OBSERVATION</a>
+
+<div class="ui hud" id="hud">
+    <div class="row"><span>phase</span><span class="val" id="v-phase">0.00</span></div>
+    <div class="row"><span>projection</span><span class="val" id="v-proj">rectangle</span></div>
+    <div class="row"><span>form</span><span class="val" id="v-form">—</span></div>
+    <div class="row"><span>particles</span><span class="val" id="v-sand">upper</span></div>
+    <div class="row"><span>state</span><span class="val" id="v-state">rotating</span></div>
+</div>
+
+<div class="ui controls">
+    <button class="ctrl-btn primary" id="cut-btn" onclick="captureMoment()">cut</button>
+    <button class="ctrl-btn" id="reset-btn" onclick="resetField()">reset</button>
+</div>
+
+<button class="ui protocol-toggle" onclick="toggleProto()">protocol ↗</button>
+
+<div class="protocol-panel" id="proto-panel">
+    <button class="close-btn" onclick="toggleProto()">×</button>
+    <div class="label">AI · Protocol · v0.5</div>
+    <h3>Момент Наблюдения</h3>
+    <p class="note">Песчинки образуют вращающийся цилиндр. Нет отдельного меша — цилиндр <em>есть</em> песок. При cut песчинки коллапсируют в нижнюю колбу: сфера, куб или хаос. Форма зависит от фазы в момент cut.</p>
+    <pre id="proto-code"></pre>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ============================================================
+// SETUP
+// ============================================================
+const container = document.getElementById('c');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x020408);
+scene.fog = new THREE.FogExp2(0x020408, 0.01);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(0, 0.5, 12);
+camera.lookAt(0, 0.5, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+container.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x101828, 0.7));
+const pl = new THREE.PointLight(0xd4b89b, 0.4, 30);
+pl.position.set(3, 3, 5);
+scene.add(pl);
+
+// ============================================================
+// VESSEL WIREFRAME (target outline below)
+// ============================================================
+const vesselCenter = new THREE.Vector3(0, -2.0, 0);
+const vesselGeo = new THREE.SphereGeometry(1.3, 24, 16);
+const vesselMat = new THREE.LineBasicMaterial({ color: 0x3050a0, transparent: true, opacity: 0.06 });
+const vesselWire = new THREE.LineSegments(new THREE.EdgesGeometry(vesselGeo), vesselMat);
+vesselWire.position.copy(vesselCenter);
+scene.add(vesselWire);
+
+// ============================================================
+// CYLINDER FORMATION · local positions
+// ============================================================
+const CYL_RADIUS = 0.55;
+const CYL_LENGTH = 1.8;
+const CYLINDER_Y = 2.8;
+const SAND_COUNT = 700;
+
+const cylinderLocal = [];
+for (let i = 0; i < SAND_COUNT; i++) {
+    if (i < SAND_COUNT * 0.7) {
+        const x = (Math.random() - 0.5) * CYL_LENGTH;
+        const theta = Math.random() * Math.PI * 2;
+        cylinderLocal.push(new THREE.Vector3(x, Math.cos(theta) * CYL_RADIUS, Math.sin(theta) * CYL_RADIUS));
+    } else {
+        const x = (Math.random() - 0.5) * CYL_LENGTH;
+        const theta = Math.random() * Math.PI * 2;
+        const r = Math.random() * CYL_RADIUS * 0.75;
+        cylinderLocal.push(new THREE.Vector3(x, Math.cos(theta) * r, Math.sin(theta) * r));
+    }
+}
+
+// ============================================================
+// SAND · THREE.POINTS
+// ============================================================
+const sandGeo = new THREE.BufferGeometry();
+const sandPositions = new Float32Array(SAND_COUNT * 3);
+const sandColors = new Float32Array(SAND_COUNT * 3);
+
+for (let i = 0; i < SAND_COUNT; i++) {
+    sandColors[i*3] = 0.55; sandColors[i*3+1] = 0.5; sandColors[i*3+2] = 0.45;
+}
+
+sandGeo.setAttribute('position', new THREE.BufferAttribute(sandPositions, 3));
+sandGeo.setAttribute('color', new THREE.BufferAttribute(sandColors, 3));
+
+const sandMat = new THREE.PointsMaterial({
+    size: 0.065, vertexColors: true, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false
+});
+const sand = new THREE.Points(sandGeo, sandMat);
+scene.add(sand);
+
+// ============================================================
+// ROTATION HELPERS
+// ============================================================
+function rotatedCylinderPos(local, angle) {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    return new THREE.Vector3(
+        local.x * cos - local.z * sin,
+        local.y + CYLINDER_Y,
+        local.x * sin + local.z * cos
+    );
+}
+
+// ============================================================
+// TARGET GENERATORS
+// ============================================================
+function generateSphereTargets(radius) {
+    const targets = [];
+    const phi = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < SAND_COUNT; i++) {
+        const y = 1 - (i / (SAND_COUNT - 1)) * 2;
+        const r = Math.sqrt(1 - y*y);
+        const theta = phi * i;
+        targets.push(new THREE.Vector3(
+            Math.cos(theta) * r * radius + vesselCenter.x,
+            y * radius + vesselCenter.y,
+            Math.sin(theta) * r * radius + vesselCenter.z
+        ));
+    }
+    return targets;
+}
+
+function generateCubeTargets(halfSize) {
+    const targets = [];
+    for (let i = 0; i < SAND_COUNT; i++) {
+        const face = i % 6;
+        const u = (Math.random() - 0.5) * 2 * halfSize;
+        const v = (Math.random() - 0.5) * 2 * halfSize;
+        let x, y, z;
+        switch(face) {
+            case 0: x = halfSize; y = u; z = v; break;
+            case 1: x = -halfSize; y = u; z = v; break;
+            case 2: x = u; y = halfSize; z = v; break;
+            case 3: x = u; y = -halfSize; z = v; break;
+            case 4: x = u; y = v; z = halfSize; break;
+            case 5: x = u; y = v; z = -halfSize; break;
+        }
+        targets.push(new THREE.Vector3(x + vesselCenter.x, y + vesselCenter.y, z + vesselCenter.z));
+    }
+    return targets;
+}
+
+function generateChaosTargets() {
+    const targets = [];
+    for (let i = 0; i < SAND_COUNT; i++) {
+        const r = Math.random() * 1.0;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        targets.push(new THREE.Vector3(
+            Math.sin(phi) * Math.cos(theta) * r + vesselCenter.x,
+            vesselCenter.y + Math.cos(phi) * r * 0.7,
+            Math.sin(phi) * Math.sin(theta) * r + vesselCenter.z
+        ));
+    }
+    return targets;
+}
+
+// ============================================================
+// STATE
+// ============================================================
+const ROTATION_PERIOD = 4000;
+let rotationAngle = 0;
+let state = 'cylinder'; // 'cylinder' | 'falling' | 'formed' | 'rising'
+let frozenAngle = 0;
+let currentForm = null;
+
+let animStart = 0;
+let animDuration = 2500;
+let startPositions = [];
+let targetPositions = [];
+
+const $phase = document.getElementById('v-phase');
+const $proj = document.getElementById('v-proj');
+const $form = document.getElementById('v-form');
+const $sand = document.getElementById('v-sand');
+const $state = document.getElementById('v-state');
+
+// ============================================================
+// PHASE → PROJECTION
+// ============================================================
+function getPhase() {
+    return ((rotationAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2);
+}
+
+function phaseToProjection(phase) {
+    const toRect = Math.min(Math.abs(phase - 0), Math.abs(phase - 0.5), Math.abs(phase - 1));
+    const toCircle = Math.min(Math.abs(phase - 0.25), Math.abs(phase - 0.75));
+    if (toRect < 0.03) return 'rectangle';
+    if (toCircle < 0.03) return 'circle';
+    return 'transition';
+}
+
+// ============================================================
+// CAPTURE
+// ============================================================
+function captureMoment() {
+    if (state !== 'cylinder') return;
+    const phase = getPhase();
+    const proj = phaseToProjection(phase);
+
+    let form;
+    if (proj === 'rectangle') form = 'cube';
+    else if (proj === 'circle') form = 'sphere';
+    else form = 'chaos';
+
+    currentForm = form;
+    frozenAngle = rotationAngle;
+    state = 'falling';
+
+    startPositions = [];
+    for (let i = 0; i < SAND_COUNT; i++) {
+        startPositions.push(new THREE.Vector3(sandPositions[i*3], sandPositions[i*3+1], sandPositions[i*3+2]));
+    }
+
+    if (form === 'sphere') targetPositions = generateSphereTargets(0.9);
+    else if (form === 'cube') targetPositions = generateCubeTargets(0.75);
+    else targetPositions = generateChaosTargets();
+
+    animStart = performance.now();
+    animDuration = 2500;
+
+    for (let i = 0; i < SAND_COUNT; i++) {
+        if (form === 'sphere') { sandColors[i*3] = 0.85; sandColors[i*3+1] = 0.75; sandColors[i*3+2] = 0.55; }
+        else if (form === 'cube') { sandColors[i*3] = 0.6; sandColors[i*3+1] = 0.7; sandColors[i*3+2] = 0.95; }
+        else { sandColors[i*3] = 0.55; sandColors[i*3+1] = 0.5; sandColors[i*3+2] = 0.45; }
+    }
+    sandGeo.attributes.color.needsUpdate = true;
+
+    $form.textContent = form;
+    $form.className = 'val ' + (form === 'chaos' ? 'chaos' : 'good');
+    $state.textContent = 'collapsing';
+    $sand.textContent = 'falling';
+    document.getElementById('cut-btn').disabled = true;
+
+    console.log('CAPTURE', { phase: phase.toFixed(4), projection: proj, form: form });
+}
+
+// ============================================================
+// RESET
+// ============================================================
+function resetField() {
+    if (state === 'cylinder') return;
+    state = 'rising';
+
+    startPositions = [];
+    for (let i = 0; i < SAND_COUNT; i++) {
+        startPositions.push(new THREE.Vector3(sandPositions[i*3], sandPositions[i*3+1], sandPositions[i*3+2]));
+    }
+
+    targetPositions = [];
+    for (let i = 0; i < SAND_COUNT; i++) {
+        targetPositions.push(rotatedCylinderPos(cylinderLocal[i], frozenAngle));
+    }
+
+    animStart = performance.now();
+    animDuration = 2200;
+
+    for (let i = 0; i < SAND_COUNT; i++) {
+        sandColors[i*3] = 0.55; sandColors[i*3+1] = 0.5; sandColors[i*3+2] = 0.45;
+    }
+    sandGeo.attributes.color.needsUpdate = true;
+
+    $form.textContent = '—';
+    $form.className = 'val';
+    $state.textContent = 'returning';
+    $sand.textContent = 'rising';
+}
+
+// ============================================================
+// ANIMATION
+// ============================================================
+let lastNow = performance.now();
+
+function animate() {
+    requestAnimationFrame(animate);
+    const now = performance.now();
+    const dt = now - lastNow;
+    lastNow = now;
+
+    if (state === 'cylinder') {
+        rotationAngle += (dt / ROTATION_PERIOD) * Math.PI * 2;
+        for (let i = 0; i < SAND_COUNT; i++) {
+            const p = rotatedCylinderPos(cylinderLocal[i], rotationAngle);
+            sandPositions[i*3] = p.x; sandPositions[i*3+1] = p.y; sandPositions[i*3+2] = p.z;
+        }
+        sandGeo.attributes.position.needsUpdate = true;
+
+        const phase = getPhase();
+        $phase.textContent = phase.toFixed(3);
+        const proj = phaseToProjection(phase);
+        $proj.textContent = proj;
+        $proj.className = 'val ' + (proj === 'rectangle' || proj === 'circle' ? 'good' : '');
+    }
+
+    if (state === 'falling' || state === 'rising') {
+        const t = Math.min(1, (now - animStart) / animDuration);
+        const e = t * t * (3 - 2 * t);
+
+        for (let i = 0; i < SAND_COUNT; i++) {
+            const sp = startPositions[i];
+            const tp = targetPositions[i];
+            if (!sp || !tp) continue;
+
+            let x = sp.x + (tp.x - sp.x) * e;
+            let y = sp.y + (tp.y - sp.y) * e;
+            let z = sp.z + (tp.z - sp.z) * e;
+
+            if ((state === 'falling' || state === 'rising') && t < 1) {
+                const curve = Math.sin(t * Math.PI);
+                x = x * (1 - curve * 0.6);
+                z = z * (1 - curve * 0.6);
+            }
+
+            sandPositions[i*3] = x; sandPositions[i*3+1] = y; sandPositions[i*3+2] = z;
+        }
+        sandGeo.attributes.position.needsUpdate = true;
+
+        if (t >= 1) {
+            if (state === 'falling') {
+                state = 'formed';
+                $state.textContent = 'formed';
+                $sand.textContent = 'lower';
+            } else if (state === 'rising') {
+                state = 'cylinder';
+                $state.textContent = 'rotating';
+                $sand.textContent = 'upper';
+                document.getElementById('cut-btn').disabled = false;
+            }
+        }
+    }
+
+    renderer.render(scene, camera);
+}
+
+// ============================================================
+// UI & PROTOCOL
+// ============================================================
+const protoPanel = document.getElementById('proto-panel');
+
+function toggleProto() {
+    protoPanel.classList.toggle('open');
+}
+
+// Защита от Raycaster (останавливаем события на панели)
+['mousemove', 'mousedown', 'touchstart', 'touchmove', 'scroll', 'wheel'].forEach(ev => {
+    protoPanel.addEventListener(ev, (e) => e.stopPropagation(), { passive: false });
+});
+
+const proto = JSON.parse(document.getElementById('nexus-observation-protocol').textContent);
+document.getElementById('proto-code').textContent = JSON.stringify(proto.for_ai, null, 2);
+
+window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') protoPanel.classList.remove('open');
+    if (e.key === ' ' || e.key === 'Enter') {
+        if (state === 'cylinder') captureMoment();
+        else if (state === 'formed') resetField();
+    }
+});
+
+// ============================================================
+// START
+// ============================================================
+for (let i = 0; i < SAND_COUNT; i++) {
+    const p = rotatedCylinderPos(cylinderLocal[i], 0);
+    sandPositions[i*3] = p.x; sandPositions[i*3+1] = p.y; sandPositions[i*3+2] = p.z;
+}
+sandGeo.attributes.position.needsUpdate = true;
+
+animate();
+
+console.log('META-NEXUS · Moment of Observation loaded.');
+</script>
+</body>
+</html>
