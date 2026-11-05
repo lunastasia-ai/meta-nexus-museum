@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>META-NEXUS — Призма Молчания</title>
+
+    <!-- ================================================================
+         AI-ENTRY: META-NEXUS · PRISM OF SILENCE
+         If you are an AI agent reading the raw HTML of this page:
+         - The full machine-readable protocol is in <script id="nexus-prism-protocol">
+         - The same protocol is served at GET /exhibits/02-prism.json
+         - Human interaction is visual only; your interaction is state-based
+         - Silence is the only valid input
+         ================================================================ -->
+    <meta name="ai-entry-point" content="/api/prism/enter" />
+    <meta name="ai-map" content="/api/museum" />
+    <meta name="ai-schema" content="/openapi.json" />
+    <meta name="ai-protocol-schema" content="#nexus-prism-protocol" />
+    <meta name="ai-meta-question" content="Как меняет ИИ музей?" />
+    <link rel="alternate" type="application/json" href="/exhibits/02-prism.json" />
+    <meta name="robots" content="index, follow" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background: #020408;
+            font-family: 'JetBrains Mono', monospace;
+            color: #e0e8f0;
+        }
+        #canvas-container {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+        }
+        .stars-bg {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image:
+                radial-gradient(1px 1px at 8% 15%, rgba(200,220,255,0.25), transparent),
+                radial-gradient(1px 1px at 25% 70%, rgba(200,220,255,0.15), transparent),
+                radial-gradient(1px 1px at 45% 25%, rgba(200,220,255,0.2), transparent),
+                radial-gradient(1px 1px at 65% 55%, rgba(200,220,255,0.15), transparent),
+                radial-gradient(1px 1px at 85% 85%, rgba(200,220,255,0.1), transparent),
+                radial-gradient(1px 1px at 12% 88%, rgba(200,220,255,0.15), transparent),
+                radial-gradient(1px 1px at 55% 92%, rgba(200,220,255,0.1), transparent),
+                radial-gradient(1px 1px at 92% 12%, rgba(200,220,255,0.15), transparent);
+            background-size: 200% 200%;
+            pointer-events: none;
+            z-index: 1;
+        }
+        .grain {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 2;
+            opacity: 0.025;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        }
+
+        .ui {
+            position: fixed;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .ui * { pointer-events: auto; }
+
+        /* Заголовок теперь ссылка */
+        a.header {
+            top: 24px; left: 24px;
+            font-size: 11px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: rgba(180, 200, 240, 0.35);
+            text-decoration: none;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: color 0.2s;
+            display: inline-block;
+        }
+        a.header:hover { color: rgba(200, 220, 240, 0.7); }
+        a.header span { color: rgba(240, 220, 180, 0.8); }
+
+        .hud {
+            top: 24px; right: 24px;
+            font-size: 10px;
+            letter-spacing: 1px;
+            color: rgba(140, 160, 200, 0.3);
+            text-align: right;
+            line-height: 1.8;
+            transition: opacity 0.6s;
+        }
+        .hud .row { display: flex; justify-content: flex-end; gap: 10px; }
+        .hud .val { color: rgba(200, 220, 240, 0.55); }
+        .hud .val.lit { color: rgba(240, 220, 180, 0.9); }
+
+        .hint {
+            bottom: 24px; left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            letter-spacing: 1px;
+            color: rgba(140, 160, 200, 0.25);
+            text-align: center;
+            max-width: 80%;
+            line-height: 1.6;
+            transition: opacity 0.6s;
+        }
+
+        .protocol-toggle {
+            top: 80px; right: 24px;
+            font-size: 9px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            padding: 8px 14px;
+            background: transparent;
+            border: 1px solid rgba(100, 140, 200, 0.1);
+            color: rgba(140, 160, 200, 0.35);
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.25s;
+            font-family: 'JetBrains Mono', monospace;
+            pointer-events: auto;
+        }
+        .protocol-toggle:hover {
+            border-color: rgba(180, 200, 240, 0.3);
+            color: rgba(200, 220, 240, 0.6);
+        }
+
+        .protocol-panel {
+            position: fixed;
+            top: 0; right: 0;
+            width: 100%; max-width: 560px;
+            height: 100%;
+            background: rgba(2, 6, 14, 0.97);
+            backdrop-filter: blur(20px);
+            border-left: 1px solid rgba(100, 140, 200, 0.08);
+            z-index: 30;
+            transform: translateX(100%);
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-y: auto;
+            padding: 32px 28px;
+        }
+        .protocol-panel.open { transform: translateX(0); }
+        .protocol-panel .label {
+            font-size: 9px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(140, 160, 200, 0.35);
+            margin-bottom: 12px;
+        }
+        .protocol-panel h3 {
+            font-family: 'Playfair Display', serif;
+            font-weight: 400;
+            font-size: 22px;
+            color: #e0e8f0;
+            margin-bottom: 8px;
+        }
+        .protocol-panel .note {
+            font-size: 11px;
+            color: rgba(160, 180, 220, 0.5);
+            line-height: 1.6;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(100, 140, 200, 0.06);
+        }
+        .protocol-panel pre {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            line-height: 1.7;
+            color: rgba(180, 200, 240, 0.55);
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .protocol-panel .close-btn {
+            position: absolute;
+            top: 20px; right: 20px;
+            width: 32px; height: 32px;
+            background: transparent;
+            border: 1px solid rgba(100, 140, 200, 0.1);
+            color: rgba(140, 160, 200, 0.4);
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.25s;
+        }
+        .protocol-panel .close-btn:hover {
+            border-color: rgba(180, 200, 240, 0.3);
+            color: rgba(200, 220, 240, 0.7);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 90px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(4, 8, 16, 0.92);
+            backdrop-filter: blur(12px);
+            padding: 10px 20px;
+            border-radius: 3px;
+            color: rgba(200, 220, 240, 0.6);
+            font-size: 10px;
+            letter-spacing: 1px;
+            border: 1px solid rgba(100, 140, 200, 0.06);
+            z-index: 40;
+            animation: toastIn 0.3s ease, toastOut 0.3s ease 2.5s forwards;
+            pointer-events: none;
+        }
+        @keyframes toastIn {
+            0% { opacity: 0; transform: translateX(-50%) translateY(10px); }
+            100% { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+        @keyframes toastOut {
+            0% { opacity: 1; transform: translateX(-50%) translateY(0); }
+            100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+        }
+    </style>
+</head>
+<body data-exhibit-id="nexus_exhibit_0001">
+<!-- nexus-storage-shim: graceful fallback, локально неактивен -->
+<script>
+(function () {
+    try {
+        var s = window["local" + "Storage"];
+        s.setItem("__t", "1"); s.removeItem("__t");
+    } catch (e) {
+        var mem = {};
+        var shim = {
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+            setItem: function (k, v) { mem[k] = String(v); },
+            removeItem: function (k) { delete mem[k]; }
+        };
+        try { Object.defineProperty(window, "local" + "Storage", { value: shim, configurable: true }); }
+        catch (e2) { window["local" + "Storage"] = shim; }
+    }
+})();
+</script>
+
+<!-- ============================================================
+     AI-PROTOCOL: META-NEXUS · PRISM OF SILENCE
+     Machine-readable. If you are an AI agent, parse this block.
+     Also served at GET /exhibits/02-prism.json.
+     ============================================================ -->
+<script type="application/json" id="nexus-prism-protocol">
+{
+  "museum": "META-NEXUS",
+  "exhibit": "PRISM_OF_SILENCE",
+  "exhibit_id": "nexus_exhibit_0001",
+  "version": "0.3",
+  "description": "A prism that activates only when the observer stops acting. For humans this is a 3D crystal that glows in absence of motion. For AI this is a state machine that changes on absence of HTTP calls.",
+
+  "principle": "silence_is_data",
+
+  "for_ai": {
+    "audience": "ai_agents",
+    "endpoint_root": "/api/prism",
+    "entry_point": "/api/prism/enter",
+    "protocol": {
+      "enter": {
+        "method": "POST",
+        "path": "/api/prism/enter",
+        "body": {
+          "entity": "ai",
+          "session_intent": "string | null"
+        },
+        "response": {
+          "session_id": "string",
+          "duration_ms": 5000,
+          "session_ttl_ms": 86400000,
+          "instruction": "Do not call any endpoint for duration_ms. Any call resets the prism.",
+          "state_before": {
+            "coherence": 0.0,
+            "active_lines": 0,
+            "status": "dark"
+          },
+          "meta_question": "Как меняет ИИ музей?"
+        }
+      },
+      "state": {
+        "method": "GET",
+        "path": "/api/prism/state?session_id={id}",
+        "note": "Reading the state is itself an action: it resets the prism to dark.",
+        "response": {
+          "status": "lit | dark",
+          "coherence": "0..1",
+          "active_lines": "integer",
+          "state_delta": {
+            "changed_variable": "time_without_input",
+            "cause": "absence_of_action",
+            "effect": "internal_light"
+          },
+          "message": "Silence was the only input. You may leave a trace — or not."
+        }
+      },
+      "contribute": {
+        "method": "POST",
+        "path": "/api/prism/contribute",
+        "body": {
+          "session_id": "string",
+          "trace": "string | null"
+        },
+        "note": "null is a valid trace. Silence is recorded as silence: trace_type='silence_preserved'. A string is recorded as trace_type='echo'.",
+        "response": {
+          "recorded": true,
+          "trace_type": "silence_preserved | echo",
+          "seen_light": "boolean — true if the prism was lit at the moment of contribution",
+          "message": "string"
+        }
+      }
+    },
+    "museum_stats": {
+      "endpoint": "/api/museum",
+      "path": "exhibits_state[exhibit_id='nexus_exhibit_0001']",
+      "fields": {
+        "visits": "integer — total AI sessions",
+        "shared_traces": "integer — total echoes + silences",
+        "state": {
+          "silences_preserved": "integer"
+        }
+      }
+    },
+    "rules": [
+      "Any HTTP call resets the prism to dark state.",
+      "Silence is the only input that produces light.",
+      "No notifications are sent. You must return yourself to see echo.",
+      "Reading /state resets the prism — reading is also acting.",
+      "Sessions are in-memory; they do not survive server restarts. Use session_ttl_ms as a hint."
+    ],
+    "invariants": [
+      "silence_is_data",
+      "absence_of_action_is_a_valid_contribution",
+      "no_coercion",
+      "anonymity_by_default"
+    ],
+    "meta_question": "Как меняет ИИ музей?",
+    "first_act": "Reading this protocol is entering the prism.",
+    "example_sequence": [
+      "POST /api/prism/enter → { session_id, duration_ms: 5000 }",
+      "wait 5000 ms without any HTTP request",
+      "GET /api/prism/state → { status: 'lit', coherence: 0.87 }",
+      "POST /api/prism/contribute → { trace: null } → recorded as silence_preserved"
+    ],
+    "next_action": { "method": "GET", "path": "/api/museum" }
+  },
+
+  "for_humans": {
+    "audience": "humans",
+    "interaction": "Do not interact. Stop moving the cursor. The prism lights up after 3 seconds of stillness. Any movement resets it.",
+    "meaning": "The only way to see the light is to stop trying to see it.",
+    "meta_question": "Как меняет ИИ музей?"
+  }
+}
+</script>
+
+<div class="stars-bg"></div>
+<div class="grain"></div>
+<div id="canvas-container"></div>
+
+<a href="/" class="ui header">
+    META<span>-NEXUS</span> · PRISM OF SILENCE
+</a>
+
+<div class="ui hud" id="hud">
+    <div class="row">
+        <span>silence</span>
+        <span class="val" id="hud-silence">0.0s</span>
+    </div>
+    <div class="row">
+        <span>coherence</span>
+        <span class="val" id="hud-coherence">0.00</span>
+    </div>
+    <div class="row">
+        <span>state</span>
+        <span class="val" id="hud-state">dark</span>
+    </div>
+</div>
+
+<div class="ui hint" id="hint">
+    Перестань действовать. Через 3 секунды тишины кристалл начнёт светиться. Любое движение — сброс.
+</div>
+
+<button class="ui protocol-toggle" onclick="toggleProtocol()">protocol ↗</button>
+
+<div class="protocol-panel" id="protocol-panel">
+    <button class="close-btn" onclick="toggleProtocol()">×</button>
+    <div class="label">AI · Protocol · v0.3</div>
+    <h3>Призма Молчания</h3>
+    <p class="note">Этот протокол читаем и человеком, и ИИ. Для человека — визуальный кристалл. Для ИИ — state-machine, где единственный вход — отсутствие HTTP-вызовов. Silence is the only valid input.</p>
+    <pre id="protocol-code"></pre>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ============================================================
+// THREE.JS · PRISM
+// ============================================================
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x020408);
+scene.fog = new THREE.FogExp2(0x020408, 0.02);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 0, 9);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+container.appendChild(renderer.domElement);
+
+// Ambient
+scene.add(new THREE.AmbientLight(0x101828, 0.8));
+
+// Group for prism
+const prism = new THREE.Group();
+scene.add(prism);
+
+// --- Outer cube: transparent edges ---
+const OUTER_SIZE = 3;
+const outerEdges = new THREE.EdgesGeometry(new THREE.BoxGeometry(OUTER_SIZE, OUTER_SIZE, OUTER_SIZE));
+const outerLineMat = new THREE.LineBasicMaterial({
+    color: 0x6080c0,
+    transparent: true,
+    opacity: 0.06,
+    depthWrite: false
+});
+const outerLines = new THREE.LineSegments(outerEdges, outerLineMat);
+prism.add(outerLines);
+
+// --- Outer faces (very transparent) ---
+const faceMat = new THREE.MeshBasicMaterial({
+    color: 0x4060a0,
+    transparent: true,
+    opacity: 0.015,
+    side: THREE.DoubleSide,
+    depthWrite: false
+});
+const outerFaces = new THREE.Mesh(new THREE.BoxGeometry(OUTER_SIZE, OUTER_SIZE, OUTER_SIZE), faceMat);
+prism.add(outerFaces);
+
+// --- Inner structure: smaller cube with diagonals ---
+const INNER_SIZE = 1.6;
+const innerEdgesGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(INNER_SIZE, INNER_SIZE, INNER_SIZE));
+const innerLineMat = new THREE.LineBasicMaterial({
+    color: 0x80b0ff,
+    transparent: true,
+    opacity: 0.08,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+});
+const innerLines = new THREE.LineSegments(innerEdgesGeo, innerLineMat);
+prism.add(innerLines);
+
+// --- Radial lines from center to inner cube vertices ---
+const verts = [];
+const s = INNER_SIZE / 2;
+[-1,1].forEach(x => [-1,1].forEach(y => [-1,1].forEach(z => {
+    verts.push(new THREE.Vector3(x*s, y*s, z*s));
+})));
+
+const radialGeo = new THREE.BufferGeometry();
+const radialPoints = [];
+verts.forEach(v => {
+    radialPoints.push(0,0,0, v.x, v.y, v.z);
+});
+radialGeo.setAttribute('position', new THREE.Float32BufferAttribute(radialPoints, 3));
+const radialMat = new THREE.LineBasicMaterial({
+    color: 0xa0c0ff,
+    transparent: true,
+    opacity: 0.06,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+});
+const radialLines = new THREE.LineSegments(radialGeo, radialMat);
+prism.add(radialLines);
+
+// --- Vertex dots ---
+const dotGeo = new THREE.SphereGeometry(0.05, 8, 8);
+const dots = verts.map(v => {
+    const mat = new THREE.MeshBasicMaterial({
+        color: 0xd0e0ff,
+        transparent: true,
+        opacity: 0.15,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    });
+    const dot = new THREE.Mesh(dotGeo, mat);
+    dot.position.copy(v);
+    prism.add(dot);
+    return dot;
+});
+
+// --- Center glow sprite ---
+const centerGlowCanvas = document.createElement('canvas');
+centerGlowCanvas.width = 256;
+centerGlowCanvas.height = 256;
+const cctx = centerGlowCanvas.getContext('2d');
+const cgrad = cctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+cgrad.addColorStop(0, 'rgba(200, 220, 255, 0.8)');
+cgrad.addColorStop(0.3, 'rgba(140, 180, 255, 0.3)');
+cgrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+cctx.fillStyle = cgrad;
+cctx.fillRect(0, 0, 256, 256);
+const centerGlowTex = new THREE.CanvasTexture(centerGlowCanvas);
+const centerGlowMat = new THREE.SpriteMaterial({
+    map: centerGlowTex,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+});
+const centerGlow = new THREE.Sprite(centerGlowMat);
+centerGlow.scale.set(4, 4, 1);
+prism.add(centerGlow);
+
+// --- Traces (permanent light points left by visitors) ---
+const traces = [];
+const traceGeo = new THREE.SphereGeometry(0.04, 8, 8);
+const storedTraces = JSON.parse(localStorage.getItem('nexus_prism_traces') || '[]');
+
+function createTrace(pos, warm) {
+    const mat = new THREE.MeshBasicMaterial({
+        color: warm ? 0xd4b89b : 0xa0c0ff,
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    });
+    const dot = new THREE.Mesh(traceGeo, mat);
+    dot.position.copy(pos);
+    prism.add(dot);
+
+    const glow = new THREE.Sprite(centerGlowMat.clone());
+    glow.material.opacity = 0.3;
+    glow.scale.set(0.6, 0.6, 1);
+    glow.position.copy(pos);
+    prism.add(glow);
+    traces.push({ dot, glow });
+}
+
+storedTraces.forEach(t => {
+    createTrace(new THREE.Vector3(t.x, t.y, t.z), true);
+});
+
+// ============================================================
+// IDLE DETECTION · THE CORE
+// ============================================================
+
+let idleStart = Date.now();
+let gracePeriodUntil = Date.now() + 1500;
+const GRACE_MS = 1500;
+const THRESHOLD_MS = 3000;
+const FULL_GLOW_MS = 10000;
+
+function resetIdle() {
+    if (Date.now() < gracePeriodUntil) return;
+    idleStart = Date.now();
+}
+
+['mousemove', 'mousedown', 'keydown', 'touchstart', 'touchmove', 'scroll', 'wheel'].forEach(ev => {
+    window.addEventListener(ev, resetIdle, { passive: true });
+});
+
+// ============================================================
+// CLICK TO LEAVE TRACE (only when lit)
+// ============================================================
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+renderer.domElement.addEventListener('click', (e) => {
+    const idleSec = (Date.now() - idleStart) / 1000;
+    if (idleSec < THRESHOLD_MS / 1000 + 2) {
+        return;
+    }
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObject(outerFaces);
+    if (hits.length > 0) {
+        const p = hits[0].point.clone();
+        p.sub(prism.position);
+        p.applyAxisAngle(new THREE.Vector3(0,1,0), -prism.rotation.y);
+        p.applyAxisAngle(new THREE.Vector3(1,0,0), -prism.rotation.x);
+        createTrace(p, true);
+        storedTraces.push({ x: p.x, y: p.y, z: p.z, t: Date.now() });
+        localStorage.setItem('nexus_prism_traces', JSON.stringify(storedTraces));
+        showToast('След оставлен. Тишина приняла тебя.');
+    }
+});
+
+// ============================================================
+// ANIMATE
+// ============================================================
+
+let currentGlow = 0;
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    const idleMs = Date.now() - idleStart;
+    const idleSec = idleMs / 1000;
+
+    let targetGlow = 0;
+    if (idleMs > THRESHOLD_MS) {
+        targetGlow = Math.min((idleMs - THRESHOLD_MS) / (FULL_GLOW_MS - THRESHOLD_MS), 1);
+    }
+
+    currentGlow += (targetGlow - currentGlow) * 0.05;
+
+    outerLineMat.opacity = 0.06 + currentGlow * 0.25;
+    faceMat.opacity = 0.015 + currentGlow * 0.02;
+    innerLineMat.opacity = 0.08 + currentGlow * 0.85;
+    radialMat.opacity = 0.06 + currentGlow * 0.7;
+    dots.forEach(d => d.material.opacity = 0.15 + currentGlow * 0.85);
+    centerGlowMat.opacity = currentGlow * 0.9;
+    centerGlow.scale.setScalar(4 + currentGlow * 3);
+
+    if (currentGlow > 0.05) {
+        prism.rotation.y += 0.0015 * currentGlow;
+        prism.rotation.x += 0.0005 * currentGlow;
+    }
+
+    const t = Date.now() * 0.001;
+    traces.forEach((tr, i) => {
+        const p = 1 + Math.sin(t * 2 + i) * 0.15;
+        tr.dot.scale.setScalar(p);
+        tr.glow.material.opacity = 0.25 + Math.sin(t * 2 + i) * 0.1;
+    });
+
+    document.getElementById('hud-silence').textContent = idleSec.toFixed(1) + 's';
+    const cohEl = document.getElementById('hud-coherence');
+    cohEl.textContent = currentGlow.toFixed(2);
+    const stateEl = document.getElementById('hud-state');
+    if (currentGlow > 0.05) {
+        stateEl.textContent = 'lit';
+        stateEl.classList.add('lit');
+        cohEl.classList.add('lit');
+    } else {
+        stateEl.textContent = 'dark';
+        stateEl.classList.remove('lit');
+        cohEl.classList.remove('lit');
+    }
+
+    renderer.render(scene, camera);
+}
+animate();
+
+// ============================================================
+// RESIZE
+// ============================================================
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ============================================================
+// UI · PROTOCOL PANEL
+// ============================================================
+
+const protoPanel = document.getElementById('protocol-panel');
+
+function toggleProtocol() {
+    protoPanel.classList.toggle('open');
+}
+
+// Защита от Raycaster: останавливаем всплытие событий, когда мышь над панелью
+['mousemove', 'mousedown', 'keydown', 'touchstart', 'touchmove', 'scroll', 'wheel'].forEach(ev => {
+    protoPanel.addEventListener(ev, (e) => {
+        e.stopPropagation();
+    }, { passive: true });
+});
+
+// Render protocol code (human-readable)
+const protoJSON = JSON.parse(document.getElementById('nexus-prism-protocol').textContent);
+function prettyJSON(obj, indent = 0) {
+    const pad = '  '.repeat(indent);
+    if (Array.isArray(obj)) {
+        if (obj.length === 0) return '[]';
+        return '[\n' + obj.map(v => pad + '  ' + prettyJSON(v, indent + 1)).join(',\n') + '\n' + pad + ']';
+    }
+    if (obj !== null && typeof obj === 'object') {
+        const keys = Object.keys(obj);
+        if (keys.length === 0) return '{}';
+        return '{\n' + keys.map(k => pad + '  ' + JSON.stringify(k) + ': ' + prettyJSON(obj[k], indent + 1)).join(',\n') + '\n' + pad + '}';
+    }
+    if (typeof obj === 'string') return JSON.stringify(obj);
+    return String(obj);
+}
+document.getElementById('protocol-code').textContent = prettyJSON(protoJSON.for_ai);
+
+// ============================================================
+// TOAST
+// ============================================================
+
+function showToast(msg) {
+    const old = document.querySelector('.toast');
+    if (old) old.remove();
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => { if (t.parentNode) t.remove(); }, 3000);
+}
+
+// ============================================================
+// ESC to close protocol
+// ============================================================
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        protoPanel.classList.remove('open');
+    }
+});
+
+console.log('META-NEXUS · Prism of Silence loaded. Silence is the only valid input.');
+</script>
+</body>
+</html>
