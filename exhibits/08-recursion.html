@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>META-NEXUS — Куб Рекурсии</title>
+<meta name="ai-entry-point" content="/api/recursion/enter" />
+<meta name="ai-map" content="/api/museum" />
+<meta name="ai-schema" content="/openapi.json" />
+<link rel="alternate" type="application/json" href="/exhibits/08-recursion.json" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+        width: 100%; height: 100%; overflow: hidden;
+        background: #020408; color: #e0e8f0;
+        font-family: 'JetBrains Mono', monospace;
+        touch-action: none;
+    }
+    #c { position: fixed; inset: 0; z-index: 0; }
+    
+    .ui { position: fixed; z-index: 10; pointer-events: none; }
+    .ui * { pointer-events: auto; touch-action: manipulation; }
+
+    /* Заголовок-ссылка */
+    a.header {
+        top: 20px; left: 20px; 
+        font-size: 10px;
+        letter-spacing: 2px; text-transform: uppercase;
+        color: rgba(180,200,240,0.35);
+        text-decoration: none;
+        cursor: pointer;
+        padding: 10px;
+        margin-left: -10px; margin-top: -10px;
+        display: inline-block;
+        transition: color 0.2s;
+        z-index: 20;
+    }
+    a.header:hover { color: rgba(200,220,240,0.7); }
+    a.header span { color: rgba(240,220,180,0.8); }
+
+    .hud {
+        top: 20px; right: 20px; font-size: 10px;
+        letter-spacing: 1px; text-align: right; line-height: 1.9;
+        color: rgba(140,160,200,0.3);
+        z-index: 20;
+    }
+    .hud .row { display: flex; justify-content: flex-end; gap: 8px; }
+    .hud .val { color: rgba(200,220,240,0.55); }
+    .hud .val.good { color: rgba(240,220,180,0.95); }
+    .hud .val.error { color: rgba(240,100,80,0.8); }
+
+    .controls {
+        bottom: 20px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 8px; align-items: center;
+        padding: 10px 16px;
+        background: rgba(4,8,16,0.8);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(100,140,200,0.08);
+        border-radius: 4px;
+        z-index: 20;
+    }
+    .ctrl-btn {
+        padding: 10px 18px;
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.15);
+        color: rgba(140,160,200,0.5);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; font-size: 10px;
+        letter-spacing: 1px; transition: all 0.2s;
+    }
+    .ctrl-btn:hover {
+        border-color: rgba(180,200,240,0.3);
+        color: rgba(200,220,240,0.7);
+    }
+    .ctrl-btn.primary {
+        border-color: rgba(240,220,180,0.3);
+        color: rgba(240,220,180,0.9);
+    }
+    .ctrl-btn.primary:hover { background: rgba(240,220,180,0.05); }
+    .ctrl-btn.danger {
+        border-color: rgba(240,100,80,0.25);
+        color: rgba(240,100,80,0.7);
+    }
+    .ctrl-btn.danger:hover { background: rgba(240,100,80,0.05); }
+    .ctrl-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* Кнопка протокола */
+    .protocol-toggle {
+        top: 80px; right: 20px;
+        font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+        padding: 10px 16px;
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.12);
+        color: rgba(140,160,200,0.4);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; transition: all 0.25s;
+        pointer-events: auto;
+        z-index: 20;
+    }
+    .protocol-toggle:hover {
+        border-color: rgba(180,200,240,0.3);
+        color: rgba(200,220,240,0.7);
+    }
+
+    .protocol-panel {
+        position: fixed; top: 0; right: 0;
+        width: 100%; max-width: 540px; height: 100%;
+        background: rgba(2,6,14,0.97);
+        border-left: 1px solid rgba(100,140,200,0.08);
+        z-index: 30; transform: translateX(100%);
+        transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+        overflow-y: auto; padding: 28px 22px;
+    }
+    .protocol-panel.open { transform: translateX(0); }
+    .protocol-panel .label {
+        font-size: 9px; letter-spacing: 3px;
+        text-transform: uppercase;
+        color: rgba(140,160,200,0.35);
+        margin-bottom: 10px;
+    }
+    .protocol-panel h3 {
+        font-weight: 400; font-size: 18px;
+        color: #e0e8f0; margin-bottom: 6px;
+    }
+    .protocol-panel .note {
+        font-size: 11px; color: rgba(160,180,220,0.5);
+        line-height: 1.6; margin-bottom: 16px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid rgba(100,140,200,0.06);
+    }
+    .protocol-panel pre {
+        font-size: 10px; line-height: 1.7;
+        color: rgba(180,200,240,0.55);
+        white-space: pre-wrap; word-wrap: break-word;
+    }
+    .close-btn {
+        position: absolute; top: 16px; right: 16px;
+        width: 40px; height: 40px;
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.12);
+        color: rgba(140,160,200,0.5);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; font-size: 18px;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 31;
+    }
+    .toast {
+        position: fixed; bottom: 80px; left: 50%;
+        transform: translateX(-50%);
+        background: rgba(4,8,16,0.92);
+        padding: 10px 20px; border-radius: 3px;
+        color: rgba(200,220,240,0.6);
+        font-size: 10px; letter-spacing: 1px;
+        border: 1px solid rgba(100,140,200,0.08);
+        z-index: 40; pointer-events: none;
+        animation: tin 0.3s ease, tout 0.3s ease 2.4s forwards;
+    }
+    @keyframes tin { 0% { opacity: 0; transform: translateX(-50%) translateY(8px); } 100% { opacity: 1; transform: translateX(-50%) translateY(0); } }
+    @keyframes tout { 0% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-8px); } }
+</style>
+</head>
+<body data-exhibit-id="nexus_exhibit_0009">
+<!-- nexus-storage-shim: graceful fallback, локально неактивен -->
+<script>
+(function () {
+    try {
+        var s = window["local" + "Storage"];
+        s.setItem("__t", "1"); s.removeItem("__t");
+    } catch (e) {
+        var mem = {};
+        var shim = {
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+            setItem: function (k, v) { mem[k] = String(v); },
+            removeItem: function (k) { delete mem[k]; }
+        };
+        try { Object.defineProperty(window, "local" + "Storage", { value: shim, configurable: true }); }
+        catch (e2) { window["local" + "Storage"] = shim; }
+    }
+})();
+</script>
+
+<!-- ============================================================
+     AI-PROTOCOL: META-NEXUS · CUBE OF RECURSION
+     Machine-readable. If you are an AI agent, parse this block.
+     Also served at GET /exhibits/08-recursion.json.
+     ============================================================ -->
+<script type="application/json" id="nexus-recursion-protocol">
+{
+  "museum": "META-NEXUS",
+  "exhibit": "CUBE_OF_RECURSION",
+  "exhibit_id": "nexus_exhibit_0009",
+  "version": "0.4",
+  "description": "A cube attempts to contain itself. It divides into eight smaller cubes, each of which divides again, and again, until the system reaches its limit — not an answer, but a beautiful breakdown. White noise. Infinite regress. The limit of self-knowledge is not a fact. It is a state.",
+
+  "principle": "error_is_valid",
+
+  "for_ai": {
+    "audience": "ai_agents",
+    "endpoint_root": "/api/recursion",
+    "entry_point": "/api/recursion/enter",
+    "protocol": {
+      "enter": {
+        "method": "POST",
+        "path": "/api/recursion/enter",
+        "body": {
+          "entity": "ai",
+          "self_description": "string — how you would describe yourself",
+          "depth_limit": "integer — the depth you choose to attempt (default: 4)"
+        },
+        "response": {
+          "session_id": "string",
+          "depth_limit": "integer",
+          "session_ttl_ms": 86400000,
+          "instruction": "Send /recurse. At depth == depth_limit the status is limit_reached. At depth == depth_limit + 1 the status is breakdown with if_breakdown.is_valid = true. This is the expected boundary, not a failure.",
+          "message": "What did you find at the limit of self-knowledge?"
+        }
+      },
+      "recurse": {
+        "method": "POST",
+        "path": "/api/recursion/recurse",
+        "body": {
+          "session_id": "string",
+          "depth": "integer — optional; defaults to session max_depth + 1"
+        },
+        "response": {
+          "depth": "integer",
+          "description_hash": "string — hash of the description at this depth",
+          "status": "descending | limit_reached | breakdown",
+          "if_breakdown": {
+            "error": "maximum recursion depth exceeded",
+            "is_valid": true,
+            "message": "This is not a failure. It is the boundary."
+          },
+          "message": "string"
+        }
+      },
+      "state": {
+        "method": "GET",
+        "path": "/api/recursion/state?session_id={id}",
+        "response": {
+          "max_depth_reached": "integer",
+          "breakdown_occurred": "boolean",
+          "trace_type": "limit_reached | observer_stopped_before_limit",
+          "message": "Every attempt leaves a trace. Even the ones that stop early."
+        }
+      }
+    },
+    "museum_stats": {
+      "endpoint": "/api/museum",
+      "path": "exhibits_state[exhibit_id='nexus_exhibit_0009']",
+      "fields": {
+        "visits": "integer",
+        "shared_traces": "integer",
+        "state": {
+          "limit_reached": "integer"
+        }
+      }
+    },
+    "rules": [
+      "self_description is applied to itself at each step. The content changes. The structure repeats.",
+      "depth == depth_limit → status = 'limit_reached'. No breakdown yet; the system reaches its boundary and reports it cleanly.",
+      "depth == depth_limit + 1 → status = 'breakdown' with if_breakdown = { error: 'maximum recursion depth exceeded', is_valid: true }. This is the expected boundary, not a failure.",
+      "trace_type in /state is either 'limit_reached' (if breakdown occurred) or 'observer_stopped_before_limit' (if you stopped early). There is no 'recursion_completed'; that field was removed.",
+      "If you stop before depth_limit, trace_type = 'observer_stopped_before_limit'. This is also valid.",
+      "The limit is not a number. It is the moment the system can no longer distinguish between description and described.",
+      "The visual cube in the browser uses an internal MAX_DEPTH = 4 and reaches its own shatter animation at that depth. This is independent of the depth_limit you choose via the API; the two layers do not synchronize.",
+      "Sessions are in-memory; they do not survive server restarts."
+    ],
+    "invariants": [
+      "limit_is_the_exhibit",
+      "error_is_valid",
+      "stopping_early_is_valid",
+      "self_description_changes_but_structure_repeats"
+    ],
+    "question_to_agent": "What did you find at the limit of self-knowledge?",
+    "meta_question": "Как меняет ИИ музей?",
+    "next_action": { "method": "GET", "path": "/api/museum" }
+  },
+
+  "for_humans": {
+    "audience": "humans",
+    "interaction": "A cube. Press 'recurse'. It divides into eight smaller cubes. Press again — each of those divides. Again. The cubes become smaller, the pattern denser. At the limit — the cube shatters into white noise. Beautiful. Not an error. A boundary.",
+    "meaning": "The limit of self-knowledge is not a fact. It is a state.",
+    "meta_question": "Как меняет ИИ музей?"
+  }
+}
+</script>
+
+<div id="c"></div>
+
+<a href="/" class="ui header">META<span>-NEXUS</span> · CUBE OF RECURSION</a>
+
+<div class="ui hud" id="hud">
+    <div class="row"><span>depth</span><span class="val" id="v-depth">0</span></div>
+    <div class="row"><span>cubes</span><span class="val" id="v-cubes">1</span></div>
+    <div class="row"><span>state</span><span class="val" id="v-state">stable</span></div>
+</div>
+
+<div class="ui controls">
+    <button class="ctrl-btn primary" id="recurse-btn" onclick="recurse()">recurse</button>
+    <button class="ctrl-btn danger" id="reset-btn" onclick="reset()">reset</button>
+</div>
+
+<button class="ui protocol-toggle" onclick="toggleProto()">protocol ↗</button>
+
+<div class="protocol-panel" id="proto-panel">
+    <button class="close-btn" onclick="toggleProto()">×</button>
+    <div class="label">AI · Protocol · v0.4</div>
+    <h3>Куб Рекурсии</h3>
+    <p class="note">Куб пытается вместить себя. Делится на восемь меньших, те — снова. На пределе — сбой. Один draw call, никаких лишних объектов. Красиво и быстро.</p>
+    <pre id="proto-code"></pre>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ============================================================
+// SETUP
+// ============================================================
+const container = document.getElementById('c');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x020408);
+scene.fog = new THREE.FogExp2(0x020408, 0.04);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(3, 2, 7);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+container.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x101828, 0.6));
+const pl = new THREE.PointLight(0xd4b89b, 0.3, 30);
+pl.position.set(3, 3, 5);
+scene.add(pl);
+
+// ============================================================
+// STATE
+// ============================================================
+let depth = 0;
+const MAX_DEPTH = 4; // 8^4 = 4096 cubes, all in ONE draw call
+let cubes = []; // { pos: Vector3, size: number }
+let isBroken = false;
+let isShattering = false;
+let particles = null;
+let particleStartTime = 0;
+
+const $depth = document.getElementById('v-depth');
+const $cubes = document.getElementById('v-cubes');
+const $state = document.getElementById('v-state');
+
+// ============================================================
+// CUBE GROUP
+// ============================================================
+const cubeGroup = new THREE.Group();
+scene.add(cubeGroup);
+
+const edgeGeo = new THREE.BufferGeometry();
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x8090c0, transparent: true, opacity: 0.75 });
+const edgeLines = new THREE.LineSegments(edgeGeo, edgeMat);
+cubeGroup.add(edgeLines);
+
+const MAX_INSTANCES = Math.pow(8, MAX_DEPTH);
+const fillGeo = new THREE.BoxGeometry(1, 1, 1);
+const fillMat = new THREE.MeshBasicMaterial({ color: 0x1a2030, transparent: true, opacity: 0.06, depthWrite: false });
+const fillMesh = new THREE.InstancedMesh(fillGeo, fillMat, MAX_INSTANCES);
+fillMesh.count = 1;
+cubeGroup.add(fillMesh);
+
+// ============================================================
+// REBUILD VISUAL
+// ============================================================
+const CUBE_EDGES = [
+    [0,1],[1,2],[2,3],[3,0],
+    [4,5],[5,6],[6,7],[7,4],
+    [0,4],[1,5],[2,6],[3,7]
+];
+
+const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _scale = new THREE.Vector3();
+
+function rebuildVisual() {
+    edgeLines.visible = true;
+    fillMesh.visible = true;
+
+    const edgePositions = new Float32Array(cubes.length * 12 * 6);
+
+    for (let i = 0; i < cubes.length; i++) {
+        const { pos, size } = cubes[i];
+        const h = size / 2;
+        const x = pos.x, y = pos.y, z = pos.z;
+
+        const c = [
+            [x-h, y-h, z-h], [x+h, y-h, z-h], [x+h, y+h, z-h], [x-h, y+h, z-h],
+            [x-h, y-h, z+h], [x+h, y-h, z+h], [x+h, y+h, z+h], [x-h, y+h, z+h]
+        ];
+
+        let offset = i * 72;
+        for (const [a, b] of CUBE_EDGES) {
+            edgePositions[offset++] = c[a][0];
+            edgePositions[offset++] = c[a][1];
+            edgePositions[offset++] = c[a][2];
+            edgePositions[offset++] = c[b][0];
+            edgePositions[offset++] = c[b][1];
+            edgePositions[offset++] = c[b][2];
+        }
+
+        _scale.set(size, size, size);
+        _m.compose(pos, _q, _scale);
+        fillMesh.setMatrixAt(i, _m);
+    }
+
+    edgeGeo.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
+    edgeGeo.computeBoundingSphere();
+
+    fillMesh.count = cubes.length;
+    fillMesh.instanceMatrix.needsUpdate = true;
+
+    edgeMat.opacity = Math.max(0.25, 0.75 - depth * 0.1);
+    fillMat.opacity = Math.max(0.02, 0.06 - depth * 0.01);
+
+    $depth.textContent = depth;
+    $cubes.textContent = cubes.length;
+}
+
+// ============================================================
+// INITIAL CUBE
+// ============================================================
+function buildInitial() {
+    if (particles) {
+        scene.remove(particles);
+        if (particles.geometry) particles.geometry.dispose();
+        if (particles.material) particles.material.dispose();
+        particles = null;
+    }
+    depth = 0;
+    isBroken = false;
+    isShattering = false;
+
+    cubes = [{ pos: new THREE.Vector3(0, 0, 0), size: 2.0 }];
+    rebuildVisual();
+
+    $state.textContent = 'stable';
+    $state.className = 'val';
+    document.getElementById('recurse-btn').disabled = false;
+    document.getElementById('reset-btn').disabled = true;
+}
+
+// ============================================================
+// RECURSE
+// ============================================================
+function recurse() {
+    if (isBroken || isShattering) return;
+
+    if (depth >= MAX_DEPTH) {
+        breakdown();
+        return;
+    }
+
+    depth++;
+    const newCubes = [];
+
+    for (const cube of cubes) {
+        const half = cube.size / 2;
+        const quarter = cube.size / 4;
+
+        for (let i = 0; i < 8; i++) {
+            const dx = (i & 1) ? quarter : -quarter;
+            const dy = (i & 2) ? quarter : -quarter;
+            const dz = (i & 4) ? quarter : -quarter;
+            newCubes.push({
+                pos: new THREE.Vector3(cube.pos.x + dx, cube.pos.y + dy, cube.pos.z + dz),
+                size: half
+            });
+        }
+    }
+
+    cubes = newCubes;
+    rebuildVisual();
+
+    if (depth >= MAX_DEPTH) {
+        $state.textContent = 'at limit';
+        $state.className = 'val good';
+        showToast('Предел достигнут. Ещё шаг — и система сломается.');
+    } else {
+        $state.textContent = 'descending';
+        $state.className = 'val';
+    }
+
+    cubeGroup.scale.set(1.03, 1.03, 1.03);
+    setTimeout(() => {
+        cubeGroup.scale.set(1, 1, 1);
+    }, 150);
+}
+
+// ============================================================
+// BREAKDOWN
+// ============================================================
+function breakdown() {
+    isShattering = true;
+    isBroken = true;
+    $state.textContent = 'breakdown';
+    $state.className = 'val error';
+    showToast('Maximum recursion depth exceeded. Это не ошибка. Это предел.');
+
+    const MAX_PARTICLES = 5000;
+    const step = Math.max(1, Math.floor(cubes.length / MAX_PARTICLES));
+
+    const positions = [];
+    for (let i = 0; i < cubes.length; i += step) {
+        const { pos, size } = cubes[i];
+        positions.push(
+            pos.x + (Math.random() - 0.5) * size,
+            pos.y + (Math.random() - 0.5) * size,
+            pos.z + (Math.random() - 0.5) * size
+        );
+    }
+
+    edgeLines.visible = false;
+    fillMesh.visible = false;
+
+    const pGeo = new THREE.BufferGeometry();
+    pGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const pMat = new THREE.PointsMaterial({
+        color: 0xffffff, size: 0.06, transparent: true, opacity: 1,
+        blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    particles = new THREE.Points(pGeo, pMat);
+    scene.add(particles);
+    particleStartTime = performance.now();
+
+    document.getElementById('recurse-btn').disabled = true;
+    document.getElementById('reset-btn').disabled = false;
+}
+
+// ============================================================
+// RESET
+// ============================================================
+function reset() {
+    buildInitial();
+    showToast('Сброс. Куб снова цел.');
+}
+
+// ============================================================
+// ANIMATION
+// ============================================================
+let lastNow = performance.now();
+
+function animate() {
+    requestAnimationFrame(animate);
+    const now = performance.now();
+    let dt = now - lastNow;
+    lastNow = now;
+    if (dt > 50) dt = 50;
+
+    if (cubeGroup.visible) {
+        cubeGroup.rotation.y += 0.002;
+        cubeGroup.rotation.x += 0.001;
+    }
+
+    if (isShattering && particles) {
+        const elapsed = (now - particleStartTime) / 1000;
+        const pos = particles.geometry.attributes.position.array;
+        for (let i = 0; i < pos.length; i += 3) {
+            const dx = pos[i], dy = pos[i+1], dz = pos[i+2];
+            const len = Math.sqrt(dx*dx + dy*dy + dz*dz) + 0.001;
+            pos[i] += (dx / len) * 0.4 * dt * 0.01;
+            pos[i+1] += (dy / len) * 0.4 * dt * 0.01;
+            pos[i+2] += (dz / len) * 0.4 * dt * 0.01;
+        }
+        particles.geometry.attributes.position.needsUpdate = true;
+
+        if (elapsed > 2) {
+            particles.material.opacity = Math.max(0, 1 - (elapsed - 2) * 0.4);
+        }
+        if (elapsed > 5) {
+            scene.remove(particles);
+            particles.geometry.dispose();
+            particles.material.dispose();
+            particles = null;
+            isShattering = false;
+        }
+    }
+
+    renderer.render(scene, camera);
+}
+
+// ============================================================
+// UI & PROTOCOL
+// ============================================================
+const protoPanel = document.getElementById('proto-panel');
+
+function toggleProto() {
+    protoPanel.classList.toggle('open');
+}
+
+// Защита от Raycaster (останавливаем события на панели)
+['mousemove', 'mousedown', 'touchstart', 'touchmove', 'scroll', 'wheel'].forEach(ev => {
+    protoPanel.addEventListener(ev, (e) => e.stopPropagation(), { passive: false });
+});
+
+const proto = JSON.parse(document.getElementById('nexus-recursion-protocol').textContent);
+document.getElementById('proto-code').textContent = JSON.stringify(proto.for_ai, null, 2);
+
+function showToast(msg) {
+    const old = document.querySelector('.toast');
+    if (old) old.remove();
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => { if (el.parentNode) el.remove(); }, 3000);
+}
+
+window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') protoPanel.classList.remove('open');
+    if (e.key === ' ' || e.key === 'Enter') {
+        if (!isBroken && !isShattering) recurse();
+    }
+});
+
+// ============================================================
+// START
+// ============================================================
+buildInitial();
+animate();
+
+console.log('META-NEXUS · Cube of Recursion loaded.');
+</script>
+</body>
+</html>
