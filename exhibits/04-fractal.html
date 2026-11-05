@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>META-NEXUS — Фрактал Понимания</title>
+<meta name="ai-entry-point" content="/api/gap/constellation/enter" />
+<meta name="ai-map" content="/api/museum" />
+<meta name="ai-schema" content="/openapi.json" />
+<link rel="alternate" type="application/json" href="/exhibits/04-fractal.json" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+        width: 100%; height: 100%; overflow: hidden;
+        background: #020408; color: #e0e8f0;
+        font-family: 'JetBrains Mono', monospace;
+        touch-action: none; /* Отключаем скролл и зум для 3D-сцены */
+    }
+    #c { position: fixed; inset: 0; z-index: 0; }
+    
+    .ui { position: fixed; z-index: 10; pointer-events: none; }
+    .ui * { pointer-events: auto; }
+
+    /* Заголовок теперь ссылка, увеличенная для тапов на телефоне */
+    a.header {
+        top: 20px; left: 20px; 
+        font-size: 10px;
+        letter-spacing: 2px; text-transform: uppercase;
+        color: rgba(180,200,240,0.35);
+        text-decoration: none;
+        cursor: pointer;
+        padding: 10px; /* Для удобного нажатия */
+        margin-left: -10px; margin-top: -10px;
+        display: inline-block;
+        transition: color 0.2s;
+        z-index: 20;
+    }
+    a.header:hover { color: rgba(200,220,240,0.7); }
+    a.header span { color: rgba(240,220,180,0.8); }
+
+    .hud {
+        top: 20px; right: 20px; font-size: 10px;
+        letter-spacing: 1px; text-align: right; line-height: 1.9;
+        color: rgba(140,160,200,0.3);
+        z-index: 20;
+    }
+    .hud .row { display: flex; justify-content: flex-end; gap: 8px; }
+    .hud .val { color: rgba(200,220,240,0.55); }
+    .hud .val.good { color: rgba(240,220,180,0.95); }
+    
+    .hint {
+        bottom: 100px; left: 50%; transform: translateX(-50%);
+        font-size: 10px; letter-spacing: 1px;
+        color: rgba(140,160,200,0.3);
+        text-align: center; max-width: 85%; line-height: 1.7;
+        transition: opacity 0.4s;
+        z-index: 20;
+    }
+
+    .controls {
+        bottom: 20px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 8px; align-items: center;
+        padding: 10px 16px;
+        background: rgba(4,8,16,0.8);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(100,140,200,0.08);
+        border-radius: 4px;
+        z-index: 20;
+    }
+    .n-btn, .reset-btn {
+        padding: 8px 14px; /* Чуть больше для пальцев */
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.15);
+        color: rgba(140,160,200,0.5);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; font-size: 10px;
+        letter-spacing: 1px; transition: all 0.2s;
+    }
+    .n-btn.active {
+        border-color: rgba(240,220,180,0.4);
+        color: rgba(240,220,180,0.95);
+        background: rgba(240,220,180,0.05);
+    }
+    .reset-btn:hover, .n-btn:hover {
+        border-color: rgba(180,200,240,0.3);
+        color: rgba(200,220,240,0.7);
+    }
+
+    /* Кнопка протокола: перенесена наверх, z-index повышен */
+    .protocol-toggle {
+        top: 80px; right: 20px;
+        font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+        padding: 10px 16px; /* Увеличенная зона нажатия */
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.12);
+        color: rgba(140,160,200,0.4);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; transition: all 0.25s;
+        pointer-events: auto;
+        z-index: 20;
+    }
+    .protocol-toggle:hover {
+        border-color: rgba(180,200,240,0.3);
+        color: rgba(200,220,240,0.7);
+    }
+
+    .protocol-panel {
+        position: fixed; top: 0; right: 0;
+        width: 100%; max-width: 540px; height: 100%;
+        background: rgba(2,6,14,0.97);
+        border-left: 1px solid rgba(100,140,200,0.08);
+        z-index: 30; transform: translateX(100%);
+        transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+        overflow-y: auto; padding: 28px 22px;
+    }
+    .protocol-panel.open { transform: translateX(0); }
+    .protocol-panel .label {
+        font-size: 9px; letter-spacing: 3px;
+        text-transform: uppercase;
+        color: rgba(140,160,200,0.35);
+        margin-bottom: 10px;
+    }
+    .protocol-panel h3 {
+        font-weight: 400; font-size: 18px;
+        color: #e0e8f0; margin-bottom: 6px;
+    }
+    .protocol-panel .note {
+        font-size: 11px; color: rgba(160,180,220,0.5);
+        line-height: 1.6; margin-bottom: 16px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid rgba(100,140,200,0.06);
+    }
+    .protocol-panel pre {
+        font-size: 10px; line-height: 1.7;
+        color: rgba(180,200,240,0.55);
+        white-space: pre-wrap; word-wrap: break-word;
+    }
+    .close-btn {
+        position: absolute; top: 16px; right: 16px;
+        width: 40px; height: 40px; /* Больше для пальцев */
+        background: transparent;
+        border: 1px solid rgba(100,140,200,0.12);
+        color: rgba(140,160,200,0.5);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; font-size: 18px;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 31;
+    }
+    .toast {
+        position: fixed; bottom: 150px; left: 50%;
+        transform: translateX(-50%);
+        background: rgba(4,8,16,0.92);
+        padding: 10px 20px; border-radius: 3px;
+        color: rgba(200,220,240,0.6);
+        font-size: 10px; letter-spacing: 1px;
+        border: 1px solid rgba(100,140,200,0.08);
+        z-index: 40; pointer-events: none;
+        animation: tin 0.3s ease, tout 0.3s ease 2.4s forwards;
+    }
+    @keyframes tin { 0% { opacity: 0; transform: translateX(-50%) translateY(8px); } 100% { opacity: 1; transform: translateX(-50%) translateY(0); } }
+    @keyframes tout { 0% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-8px); } }
+    
+    .trace-map {
+        position: fixed; bottom: 20px; left: 20px;
+        width: 130px; height: 90px;
+        background: rgba(4,8,16,0.6);
+        border: 1px solid rgba(100,140,200,0.08);
+        border-radius: 3px; z-index: 10; pointer-events: none; overflow: hidden;
+    }
+    .trace-map canvas { width: 100%; height: 100%; }
+    .trace-map .label {
+        position: absolute; top: 4px; left: 6px;
+        font-size: 7px; letter-spacing: 1px;
+        text-transform: uppercase;
+        color: rgba(140,160,200,0.25);
+    }
+</style>
+</head>
+<body data-exhibit-id="nexus_exhibit_0004">
+<!-- nexus-storage-shim: graceful fallback, локально неактивен -->
+<script>
+(function () {
+    try {
+        var s = window["local" + "Storage"];
+        s.setItem("__t", "1"); s.removeItem("__t");
+    } catch (e) {
+        var mem = {};
+        var shim = {
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+            setItem: function (k, v) { mem[k] = String(v); },
+            removeItem: function (k) { delete mem[k]; }
+        };
+        try { Object.defineProperty(window, "local" + "Storage", { value: shim, configurable: true }); }
+        catch (e2) { window["local" + "Storage"] = shim; }
+    }
+})();
+</script>
+
+<!-- ============================================================
+     AI-PROTOCOL: META-NEXUS · FRACTAL OF UNDERSTANDING
+     Machine-readable. If you are an AI agent, parse this block.
+     Also served at GET /exhibits/04-fractal.json.
+     ============================================================ -->
+<script type="application/json" id="nexus-fractal-protocol">
+{
+  "museum": "META-NEXUS",
+  "exhibit": "FRACTAL_OF_UNDERSTANDING",
+  "exhibit_id": "nexus_exhibit_0004",
+  "version": "0.5",
+  "description": "N points (7, 9, 12) on a sphere of radius R = 2.4. The visitor drags points to find a configuration where all visible pairwise deltas share the same status (harmonic / resonant / noise). When coherence exceeds threshold and statuses are unified — a fractal unfolds from each node.",
+
+  "principle": "coherence_is_the_search",
+
+  "for_ai": {
+    "audience": "ai_agents",
+    "endpoint_root": "/api/gap/constellation",
+    "entry_point": "/api/gap/constellation/enter",
+    "protocol": {
+      "enter": {
+        "method": "POST",
+        "path": "/api/gap/constellation/enter",
+        "body": {
+          "entity": "ai",
+          "N": "integer — 7 | 9 | 12",
+          "positions": "[[x,y,z], ...] — N points; server projects each to sphere R = 2.4",
+          "coherence_threshold": "number 0..1, default 0.85"
+        },
+        "response": {
+          "session_id": "string",
+          "R": 2.4,
+          "N": "integer — number of accepted points",
+          "pairwise_deltas": "[[i, j, delta]]",
+          "coherence": "0..1 — 1 - std/mean",
+          "all_deltas_in_one_status": "boolean — true if every visible delta falls into a single status bucket (harmonic | resonant | noise). This is NOT strict numeric equality.",
+          "fractal_status": "manifest | latent",
+          "fractal_form": "dendritic | stellar | lattice — depends on avg_delta",
+          "session_ttl_ms": 86400000,
+          "message": "Move positions to maximize coherence. Fractal manifests when coherence > threshold and all deltas share one status."
+        }
+      },
+      "move": {
+        "method": "POST",
+        "path": "/api/gap/constellation/move",
+        "body": {
+          "session_id": "string",
+          "point_index": "integer",
+          "new_position": "[x,y,z] — projected to sphere R = 2.4"
+        },
+        "response": {
+          "coherence": "0..1",
+          "all_deltas_in_one_status": "boolean",
+          "fractal_status": "manifest | latent",
+          "message": "Keep moving. Equality is rare."
+        }
+      },
+      "state": {
+        "method": "GET",
+        "path": "/api/gap/constellation/state?session_id={id}",
+        "response": { "trace_map": "array of {N, coherence, status, timestamp}" }
+      }
+    },
+    "museum_stats": {
+      "endpoint": "/api/museum",
+      "path": "exhibits_state[exhibit_id='nexus_exhibit_0004']",
+      "fields": {
+        "visits": "integer",
+        "shared_traces": "integer",
+        "state": {
+          "manifestations": "integer"
+        }
+      }
+    },
+    "rules": [
+      "coherence = 1 - (std of all visible pairwise deltas) / (mean of all visible pairwise deltas).",
+      "Delta statuses: harmonic (< 0.6), resonant (0.6..1.4), noise (>= 1.4).",
+      "all_deltas_in_one_status is true when every visible pair falls into a single status bucket. It does NOT imply numeric equality of deltas; for N = 4 the tetrahedron is the only configuration with truly equal deltas.",
+      "Fractal manifests only when coherence > threshold (default 0.85) AND all_deltas_in_one_status is true.",
+      "Server projects each accepted position onto the sphere R = 2.4 in both /enter and /move; the client does not need to pre-project.",
+      "Fractal disappears when coherence < threshold - 0.05 (hysteresis) or when statuses diverge.",
+      "Every sustained manifestation leaves a trace on the map.",
+      "Sessions are in-memory; they do not survive server restarts."
+    ],
+    "invariants": [
+      "fractal_from_effort_not_setting",
+      "coherence_is_the_search",
+      "nodes_emit_fractal_not_center"
+    ],
+    "meta_question": "Как меняет ИИ музей?",
+    "next_action": { "method": "GET", "path": "/api/museum" }
+  },
+
+  "for_humans": {
+    "audience": "humans",
+    "interaction": "Drag points on the sphere. Search for a configuration where all visible pairwise deltas are equal. The coherence meter shows how close you are. When it crosses the threshold — a fractal unfolds from every point.",
+    "meaning": "Equality of tension is not given. It is found.",
+    "meta_question": "Как меняет ИИ музей?"
+  }
+}
+</script>
+
+<div id="c"></div>
+
+<a href="/" class="ui header">META<span>-NEXUS</span> · FRACTAL OF UNDERSTANDING</a>
+
+<div class="ui hud" id="hud">
+    <div class="row"><span>visible</span><span class="val" id="v-vis">0</span></div>
+    <div class="row"><span>coherence</span><span class="val" id="v-coh">0.00</span></div>
+    <div class="row"><span>harmonic</span><span class="val" id="v-h">0</span></div>
+    <div class="row"><span>resonant</span><span class="val" id="v-r">0</span></div>
+    <div class="row"><span>noise</span><span class="val" id="v-n">0</span></div>
+    <div class="row"><span>state</span><span class="val" id="v-st">latent</span></div>
+</div>
+
+<div class="ui hint" id="hint">Перетаскивай точки по сфере. Ищи конфигурацию, где все дельты между видимыми точками равны. Когда coherence пересечёт порог — фрактал развернётся из каждой точки.</div>
+
+<div class="ui controls">
+    <button class="n-btn active" data-n="7" onclick="setN(7)">7</button>
+    <button class="n-btn" data-n="9" onclick="setN(9)">9</button>
+    <button class="n-btn" data-n="12" onclick="setN(12)">12</button>
+    <button class="reset-btn" onclick="resetPoints()">reset</button>
+</div>
+
+<button class="ui protocol-toggle" onclick="toggleProto()">protocol ↗</button>
+
+<div class="trace-map">
+    <canvas id="trace-canvas" width="130" height="90"></canvas>
+    <div class="label">trace map</div>
+</div>
+
+<div class="protocol-panel" id="proto-panel">
+    <button class="close-btn" onclick="toggleProto()">×</button>
+    <div class="label">AI · Protocol · v0.5</div>
+    <h3>Фрактал Понимания</h3>
+    <p class="note">Точки на сфере. Пользователь двигает их, ищет равенство дельт. Coherence = 1 - std/mean. Когда coherence > порога и все дельты в одной категории — фрактал разворачивается из каждой точки.</p>
+    <pre id="proto-code"></pre>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ============================================================
+// SETUP
+// ============================================================
+const container = document.getElementById('c');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x020408);
+scene.fog = new THREE.FogExp2(0x020408, 0.015);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(0, 0, 9);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+container.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x101828, 0.6));
+const pl = new THREE.PointLight(0xd4b89b, 0.3, 30);
+pl.position.set(3, 3, 5);
+scene.add(pl);
+
+// ============================================================
+// STATE
+// ============================================================
+const R = 2.4;
+let N = 7;
+let sphereGroup = new THREE.Group();
+scene.add(sphereGroup);
+
+let points = [];       // { localPos, mesh, glow }
+let connectionLines = null;
+let fractals = [];
+let coherent = false;
+let coherentSince = null;
+let traceSaved = false;
+let isDraggingPoint = false;
+let activePointIndex = -1;
+
+// ============================================================
+// POINT CREATION
+// ============================================================
+function fibonacciSphere(n) {
+    const pts = [];
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < n; i++) {
+        const y = 1 - (i / (n - 1)) * 2;
+        const radius = Math.sqrt(1 - y * y);
+        const theta = golden * i;
+        pts.push(new THREE.Vector3(
+            Math.cos(theta) * radius * R,
+            y * R,
+            Math.sin(theta) * radius * R
+        ));
+    }
+    return pts;
+}
+
+const dotGeo = new THREE.SphereGeometry(0.09, 16, 16);
+const glowTexCanvas = document.createElement('canvas');
+glowTexCanvas.width = 64; glowTexCanvas.height = 64;
+const gtx = glowTexCanvas.getContext('2d');
+const ggr = gtx.createRadialGradient(32,32,0, 32,32,32);
+ggr.addColorStop(0, 'rgba(200, 220, 255, 0.9)');
+ggr.addColorStop(1, 'rgba(0, 0, 0, 0)');
+gtx.fillStyle = ggr;
+gtx.fillRect(0,0,64,64);
+const glowTexture = new THREE.CanvasTexture(glowTexCanvas);
+
+function buildPoints() {
+    while (sphereGroup.children.length > 0) {
+        const child = sphereGroup.children[0];
+        sphereGroup.remove(child);
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+    }
+    fractals = [];
+    points = [];
+
+    const positions = fibonacciSphere(N);
+    positions.forEach((pos, i) => {
+        const mat = new THREE.MeshBasicMaterial({ color: 0x5080c0, transparent: true, opacity: 0.85 });
+        const mesh = new THREE.Mesh(dotGeo, mat);
+        mesh.position.copy(pos);
+        sphereGroup.add(mesh);
+
+        const glowMat = new THREE.SpriteMaterial({ map: glowTexture, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false });
+        const glow = new THREE.Sprite(glowMat);
+        glow.scale.set(0.6, 0.6, 1);
+        glow.position.copy(pos);
+        sphereGroup.add(glow);
+
+        points.push({ localPos: pos.clone(), mesh, glow });
+    });
+
+    buildConnectionLines();
+}
+
+function buildConnectionLines() {
+    if (connectionLines) {
+        sphereGroup.remove(connectionLines);
+        connectionLines.geometry.dispose();
+        connectionLines.material.dispose();
+    }
+    const maxPairs = N * (N - 1) / 2;
+    const posArr = new Float32Array(maxPairs * 6);
+    const colArr = new Float32Array(maxPairs * 6);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
+    const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
+    connectionLines = new THREE.LineSegments(geo, mat);
+    sphereGroup.add(connectionLines);
+}
+
+// ============================================================
+// STATUSES & FRACTAL
+// ============================================================
+function deltaStatus(d) { return d < 0.6 ? 'harmonic' : d < 1.4 ? 'resonant' : 'noise'; }
+const STATUS_COLOR = {
+    harmonic: new THREE.Color().setHSL(0.58, 0.6, 0.6),
+    resonant: new THREE.Color().setHSL(0.10, 0.75, 0.65),
+    noise: new THREE.Color().setHSL(0.02, 0.7, 0.55)
+};
+
+function mulberry32(a) {
+    return function() {
+        a |= 0; a = a + 0x6D2B79F5 | 0;
+        let t = Math.imul(a ^ a >>> 15, 1 | a);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+}
+
+function makeFractalFromNode(nodePos, centroid, status, delta) {
+    const group = new THREE.Group();
+    const depth = 4;
+    const branches = 4;
+    const baseLen = 0.18 + Math.min(delta, 2) * 0.15;
+    const spread = 0.5;
+    const rng = mulberry32(Math.floor(delta * 1000 + nodePos.x * 100));
+    const hueMap = { harmonic: 0.58, resonant: 0.10, noise: 0.02 };
+    const hue = hueMap[status] || 0.1;
+    const dir = centroid.clone().sub(nodePos).normalize();
+
+    function branch(start, d, len, level) {
+        if (level <= 0) return;
+        const end = start.clone().addScaledVector(d, len);
+        const geo = new THREE.BufferGeometry().setFromPoints([start, end]);
+        const mat = new THREE.LineBasicMaterial({
+            color: new THREE.Color().setHSL(hue, 0.7, 0.55 + level * 0.08),
+            transparent: true, opacity: 0.2 + 0.6 * (level / depth),
+            blending: THREE.AdditiveBlending, depthWrite: false
+        });
+        group.add(new THREE.Line(geo, mat));
+        for (let i = 0; i < 2; i++) {
+            const axis = new THREE.Vector3(rng() - 0.5, rng() - 0.5, rng() - 0.5).normalize();
+            const angle = spread * (i === 0 ? -1 : 1);
+            const nd = d.clone().applyAxisAngle(axis, angle).normalize();
+            branch(end, nd, len * 0.7, level - 1);
+        }
+    }
+    for (let b = 0; b < branches; b++) {
+        const axis = new THREE.Vector3(rng() - 0.5, rng() - 0.5, rng() - 0.5).normalize();
+        const a = (b / branches) * Math.PI * 2;
+        const bd = dir.clone().applyAxisAngle(axis, a).normalize();
+        branch(nodePos.clone(), bd, baseLen, depth);
+    }
+    return group;
+}
+
+// ============================================================
+// ROTATION & DRAG
+// ============================================================
+let isDraggingSphere = false;
+let prevX = 0, prevY = 0;
+let rotY = 0.3, rotX = -0.2;
+
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2();
+
+function getPointer(e) {
+    return e.touches ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY };
+}
+
+function screenToSphere(clientX, clientY) {
+    mouseNDC.x = (clientX / innerWidth) * 2 - 1;
+    mouseNDC.y = -(clientY / innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouseNDC, camera);
+    const ray = raycaster.ray.clone();
+    const inv = new THREE.Matrix4().copy(sphereGroup.matrixWorld).invert();
+    ray.applyMatrix4(inv);
+
+    const o = ray.origin, d = ray.direction;
+    const b = 2 * o.dot(d);
+    const c = o.dot(o) - R * R;
+    const disc = b * b - 4 * c;
+    if (disc < 0) return null;
+    const t1 = (-b - Math.sqrt(disc)) / 2;
+    const t2 = (-b + Math.sqrt(disc)) / 2;
+    const t = t1 > 0 ? t1 : t2;
+    if (t < 0) return null;
+    return o.clone().addScaledVector(d, t);
+}
+
+function hitTestPoint(clientX, clientY) {
+    let bestIdx = -1;
+    let bestDist = 0.08;
+    points.forEach((p, i) => {
+        const world = p.localPos.clone().applyMatrix4(sphereGroup.matrixWorld);
+        if (world.z < 0.2) return;
+        const ndc = world.clone().project(camera);
+        const dx = ndc.x - ((clientX / innerWidth) * 2 - 1);
+        const dy = ndc.y - (-(clientY / innerHeight) * 2 + 1);
+        const dist = Math.hypot(dx, dy);
+        if (dist < bestDist) {
+            bestDist = dist;
+            bestIdx = i;
+        }
+    });
+    return bestIdx;
+}
+
+function onPointerDown(e) {
+    const p = getPointer(e);
+    const hitIdx = hitTestPoint(p.x, p.y);
+    if (hitIdx >= 0) {
+        isDraggingPoint = true;
+        activePointIndex = hitIdx;
+        isDraggingSphere = false;
+    } else {
+        isDraggingSphere = true;
+        isDraggingPoint = false;
+        prevX = p.x; prevY = p.y;
+    }
+}
+
+function onPointerMove(e) {
+    const p = getPointer(e);
+    if (isDraggingPoint && activePointIndex >= 0) {
+        const newPos = screenToSphere(p.x, p.y);
+        if (newPos) {
+            points[activePointIndex].localPos.copy(newPos);
+            points[activePointIndex].mesh.position.copy(newPos);
+            points[activePointIndex].glow.position.copy(newPos);
+        }
+    } else if (isDraggingSphere) {
+        rotY += (p.x - prevX) * 0.008;
+        rotX += (p.y - prevY) * 0.008;
+        rotX = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotX));
+        prevX = p.x; prevY = p.y;
+    }
+}
+
+function onPointerUp() {
+    isDraggingPoint = false;
+    isDraggingSphere = false;
+    activePointIndex = -1;
+}
+
+container.addEventListener('mousedown', onPointerDown);
+container.addEventListener('mousemove', onPointerMove);
+container.addEventListener('mouseup', onPointerUp);
+container.addEventListener('touchstart', onPointerDown, { passive: true });
+container.addEventListener('touchmove', onPointerMove, { passive: true });
+container.addEventListener('touchend', onPointerUp);
+
+// ============================================================
+// TRACE MAP
+// ============================================================
+const traceCanvas = document.getElementById('trace-canvas');
+const traceCtx = traceCanvas.getContext('2d');
+const storedTraces = JSON.parse(localStorage.getItem('nx_fractal_traces_v3') || '[]');
+
+function drawTraceMap() {
+    const w = traceCanvas.width, h = traceCanvas.height;
+    traceCtx.clearRect(0, 0, w, h);
+    traceCtx.strokeStyle = 'rgba(100,140,200,0.06)';
+    traceCtx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+        const x = (i / 4) * w; traceCtx.beginPath(); traceCtx.moveTo(x, 0); traceCtx.lineTo(x, h); traceCtx.stroke();
+    }
+    for (let i = 0; i <= 4; i++) {
+        const y = (i / 4) * h; traceCtx.beginPath(); traceCtx.moveTo(0, y); traceCtx.lineTo(w, y); traceCtx.stroke();
+    }
+    storedTraces.forEach(t => {
+        const x = ((t.N - 7) / 5) * w;
+        const y = (1 - t.coherence) * h;
+        const hueMap = { harmonic: 0.58, resonant: 0.10, noise: 0.02 };
+        const hue = (hueMap[t.status] || 0.1) * 360;
+        traceCtx.beginPath(); traceCtx.arc(x, y, 2.5, 0, Math.PI * 2);
+        traceCtx.fillStyle = `hsla(${hue}, 70%, 65%, 0.85)`; traceCtx.fill();
+    });
+    traceCtx.fillStyle = 'rgba(140,160,200,0.25)';
+    traceCtx.font = '6px JetBrains Mono';
+    traceCtx.fillText('7', 3, h - 3);
+    traceCtx.fillText('12', w - 12, h - 3);
+    traceCtx.fillText('coh', 3, 10);
+}
+drawTraceMap();
+
+// ============================================================
+// HUD & MAIN LOOP
+// ============================================================
+const $vis = document.getElementById('v-vis');
+const $coh = document.getElementById('v-coh');
+const $h = document.getElementById('v-h');
+const $r = document.getElementById('v-r');
+const $n = document.getElementById('v-n');
+const $st = document.getElementById('v-st');
+
+const COHERENCE_THRESHOLD = 0.85;
+const COHERENCE_EXIT = 0.80;
+const _worldPos = new THREE.Vector3();
+
+function animate() {
+    requestAnimationFrame(animate);
+    const now = performance.now();
+
+    sphereGroup.rotation.y = rotY;
+    sphereGroup.rotation.x = rotX;
+    sphereGroup.updateMatrixWorld();
+
+    const visible = [];
+    points.forEach((p, idx) => {
+        _worldPos.copy(p.localPos).applyMatrix4(sphereGroup.matrixWorld);
+        p.worldZ = _worldPos.z;
+        const facing = _worldPos.z > 0.3;
+        if (facing) visible.push({ p, idx });
+
+        const b = facing ? 1.0 : 0.2;
+        const isActive = idx === activePointIndex;
+        p.mesh.material.opacity = isActive ? 1.0 : 0.25 + b * 0.55;
+        p.mesh.material.color.setHSL(isActive ? 0.10 : 0.58, 0.7, isActive ? 0.75 : 0.35 + b * 0.3);
+        p.glow.material.opacity = isActive ? 1.0 : 0.08 + b * 0.3;
+        p.glow.scale.setScalar(isActive ? 0.9 : 0.4 + b * 0.3);
+    });
+
+    const pairs = [];
+    const deltas = [];
+    const statusCount = { harmonic: 0, resonant: 0, noise: 0 };
+
+    for (let i = 0; i < visible.length; i++) {
+        for (let j = i + 1; j < visible.length; j++) {
+            const a = visible[i].p.localPos;
+            const b = visible[j].p.localPos;
+            const d = a.distanceTo(b);
+            const status = deltaStatus(d);
+            pairs.push({ i, j, delta: d, status, vi: visible[i].p, vj: visible[j].p });
+            deltas.push(d);
+            statusCount[status]++;
+        }
+    }
+
+    let coherence = 0;
+    if (deltas.length > 0) {
+        const mean = deltas.reduce((a,b)=>a+b,0) / deltas.length;
+        if (mean > 0.01) {
+            const variance = deltas.reduce((a,d)=>a+(d-mean)**2, 0) / deltas.length;
+            const std = Math.sqrt(variance);
+            coherence = Math.max(0, 1 - std / mean);
+        }
+    }
+
+    const maxPairs = N * (N - 1) / 2;
+    const posAttr = connectionLines.geometry.attributes.position;
+    const colAttr = connectionLines.geometry.attributes.color;
+    for (let k = 0; k < maxPairs; k++) {
+        const off = k * 6;
+        const p = pairs[k];
+        if (p) {
+            const a = p.vi.localPos, b = p.vj.localPos;
+            posAttr.array[off+0] = a.x; posAttr.array[off+1] = a.y; posAttr.array[off+2] = a.z;
+            posAttr.array[off+3] = b.x; posAttr.array[off+4] = b.y; posAttr.array[off+5] = b.z;
+            const c = STATUS_COLOR[p.status];
+            colAttr.array[off+0] = c.r; colAttr.array[off+1] = c.g; colAttr.array[off+2] = c.b;
+            colAttr.array[off+3] = c.r; colAttr.array[off+4] = c.g; colAttr.array[off+5] = c.b;
+        } else {
+            for (let q = 0; q < 6; q++) { posAttr.array[off+q] = 0; colAttr.array[off+q] = 0; }
+        }
+    }
+    posAttr.needsUpdate = true;
+    colAttr.needsUpdate = true;
+
+    $vis.textContent = visible.length;
+    $coh.textContent = coherence.toFixed(3);
+    $h.textContent = statusCount.harmonic;
+    $r.textContent = statusCount.resonant;
+    $n.textContent = statusCount.noise;
+
+    let sharedStatus = null;
+    if (visible.length >= 3) {
+        const nonZero = Object.entries(statusCount).filter(([_, v]) => v > 0);
+        if (nonZero.length === 1) sharedStatus = nonZero[0][0];
+    }
+
+    const shouldBeCoherent = coherence > COHERENCE_THRESHOLD && sharedStatus !== null;
+    const shouldExitCoherent = coherence < COHERENCE_EXIT || sharedStatus === null;
+
+    if (!coherent && shouldBeCoherent) {
+        coherent = true;
+        const centroid = new THREE.Vector3();
+        visible.forEach(v => centroid.add(v.p.localPos));
+        centroid.divideScalar(visible.length);
+        const avgDelta = deltas.reduce((a,b)=>a+b,0) / deltas.length;
+        visible.forEach(v => {
+            const f = makeFractalFromNode(v.p.localPos.clone(), centroid.clone(), sharedStatus, avgDelta);
+            sphereGroup.add(f);
+            fractals.push(f);
+        });
+    } else if (coherent && shouldExitCoherent) {
+        coherent = false;
+        fractals.forEach(f => sphereGroup.remove(f));
+        fractals = [];
+    }
+
+    if (coherent) {
+        $st.textContent = 'manifest · ' + sharedStatus;
+        $st.classList.add('good');
+        if (coherentSince === null) {
+            coherentSince = now;
+            traceSaved = false;
+        } else if (!traceSaved && now - coherentSince > 1500) {
+            storedTraces.push({ N: N, coherence: coherence, status: sharedStatus, t: now });
+            localStorage.setItem('nx_fractal_traces_v3', JSON.stringify(storedTraces));
+            drawTraceMap();
+            traceSaved = true;
+            toast(`Фрактал ${sharedStatus} N=${N} · coherence ${coherence.toFixed(2)}`);
+        }
+    } else {
+        $st.textContent = 'latent';
+        $st.classList.remove('good');
+        coherentSince = null;
+        traceSaved = false;
+    }
+
+    fractals.forEach(f => f.rotation.y += 0.002);
+
+    renderer.render(scene, camera);
+}
+
+// ============================================================
+// CONTROLS & UI
+// ============================================================
+function setN(newN) {
+    N = newN;
+    document.querySelectorAll('.n-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.n) === newN);
+    });
+    coherent = false;
+    fractals = [];
+    coherentSince = null;
+    traceSaved = false;
+    buildPoints();
+}
+
+function resetPoints() {
+    buildPoints();
+    coherent = false;
+    fractals = [];
+    coherentSince = null;
+    traceSaved = false;
+}
+
+const protoPanel = document.getElementById('proto-panel');
+
+function toggleProto() {
+    protoPanel.classList.toggle('open');
+}
+
+// Защита от Raycaster (останавливаем события на панели)
+['mousemove', 'mousedown', 'touchstart', 'touchmove', 'scroll', 'wheel'].forEach(ev => {
+    protoPanel.addEventListener(ev, (e) => e.stopPropagation(), { passive: false });
+});
+
+const proto = JSON.parse(document.getElementById('nexus-fractal-protocol').textContent);
+document.getElementById('proto-code').textContent = JSON.stringify(proto.for_ai, null, 2);
+
+function toast(msg) {
+    const old = document.querySelector('.toast');
+    if (old) old.remove();
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => { if (el.parentNode) el.remove(); }, 2800);
+}
+
+window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') protoPanel.classList.remove('open');
+});
+
+// ============================================================
+// INIT
+// ============================================================
+buildPoints();
+animate();
+
+console.log('META-NEXUS · Fractal of Understanding loaded.');
+</script>
+</body>
+</html>
