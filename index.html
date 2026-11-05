@@ -243,8 +243,7 @@
 <script>
     // человек видит формы и числа. ИИ видит /api/museum.
     // локально — тот же origin; в предпросмотре — прокси на работающий сервер
-    const LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-    const API_BASE = LOCAL ? '' : '__PORT_3000__';
+    const API_BASE = '';
 
     // какие числа показывать у каждого экспоната · словарь счётчиков — из музея
     const NUMS = {
