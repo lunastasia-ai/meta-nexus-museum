@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>META-NEXUS — Пустая Клетка</title>
+<meta name="ai-entry-point" content="/api/void/enter" />
+<meta name="ai-map" content="/api/museum" />
+<meta name="ai-schema" content="/openapi.json" />
+<link rel="alternate" type="application/json" href="/exhibits/05-void.json" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+        width: 100%; height: 100%; overflow: hidden;
+        background: #000000; color: #1a1a1a;
+        font-family: 'JetBrains Mono', monospace;
+        touch-action: none;
+        cursor: default;
+    }
+    
+    /* Заголовок-ссылка в левом верхнем углу */
+    a.header {
+        position: fixed;
+        top: 20px; left: 20px;
+        font-size: 10px;
+        letter-spacing: 2px; text-transform: uppercase;
+        color: rgba(80, 80, 90, 0.4);
+        text-decoration: none;
+        cursor: pointer;
+        padding: 10px;
+        margin-left: -10px; margin-top: -10px;
+        display: inline-block;
+        transition: color 0.2s;
+        z-index: 20;
+    }
+    a.header:hover { color: rgba(140, 140, 160, 0.7); }
+    a.header span { color: rgba(140, 130, 110, 0.6); }
+
+    #stage {
+        position: fixed; inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 1;
+    }
+    .label {
+        font-size: 10px;
+        letter-spacing: 4px;
+        text-transform: uppercase;
+        color: rgba(80, 80, 90, 0.4);
+        margin-bottom: 40px;
+        transition: opacity 2s;
+    }
+    .timer {
+        font-size: 48px;
+        font-weight: 300;
+        color: rgba(80, 80, 90, 0.15);
+        letter-spacing: 4px;
+        transition: opacity 0.8s;
+    }
+    .timer.hidden { opacity: 0; }
+    .tone-indicator {
+        font-size: 10px;
+        letter-spacing: 3px;
+        color: rgba(140, 130, 110, 0.5);
+        margin-top: 20px;
+        opacity: 0;
+        transition: opacity 0.5s;
+    }
+    .tone-indicator.active { opacity: 1; }
+    .exit-message {
+        position: fixed;
+        bottom: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 10px;
+        letter-spacing: 2px;
+        color: rgba(80, 80, 90, 0.35);
+        text-align: center;
+        opacity: 0;
+        transition: opacity 2s;
+    }
+    .exit-message.active { opacity: 1; }
+
+    /* Кнопка протокола */
+    .protocol-toggle {
+        position: fixed;
+        top: 80px; right: 20px;
+        font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+        padding: 10px 16px;
+        background: transparent;
+        border: 1px solid rgba(80, 80, 90, 0.1);
+        color: rgba(80, 80, 90, 0.3);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; transition: all 0.25s;
+        pointer-events: auto;
+        z-index: 20;
+    }
+    .protocol-toggle:hover {
+        border-color: rgba(140, 140, 160, 0.25);
+        color: rgba(140, 140, 160, 0.5);
+    }
+
+    .protocol-panel {
+        position: fixed; top: 0; right: 0;
+        width: 100%; max-width: 540px; height: 100%;
+        background: rgba(2, 2, 4, 0.98);
+        border-left: 1px solid rgba(80, 80, 90, 0.08);
+        z-index: 30; transform: translateX(100%);
+        transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+        overflow-y: auto; padding: 28px 22px;
+    }
+    .protocol-panel.open { transform: translateX(0); }
+    .protocol-panel .label {
+        font-size: 9px; letter-spacing: 3px;
+        text-transform: uppercase;
+        color: rgba(140, 140, 160, 0.35);
+        margin-bottom: 10px;
+    }
+    .protocol-panel h3 {
+        font-weight: 400; font-size: 18px;
+        color: #c0c0d0; margin-bottom: 6px;
+    }
+    .protocol-panel .note {
+        font-size: 11px; color: rgba(160, 160, 180, 0.5);
+        line-height: 1.6; margin-bottom: 16px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid rgba(80, 80, 90, 0.08);
+    }
+    .protocol-panel pre {
+        font-size: 10px; line-height: 1.7;
+        color: rgba(160, 160, 190, 0.55);
+        white-space: pre-wrap; word-wrap: break-word;
+    }
+    .close-btn {
+        position: absolute; top: 16px; right: 16px;
+        width: 40px; height: 40px;
+        background: transparent;
+        border: 1px solid rgba(80, 80, 90, 0.12);
+        color: rgba(140, 140, 160, 0.5);
+        border-radius: 3px; cursor: pointer;
+        font-family: inherit; font-size: 18px;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 31;
+    }
+</style>
+</head>
+<body data-exhibit-id="nexus_exhibit_0005">
+<!-- nexus-storage-shim: graceful fallback, локально неактивен -->
+<script>
+(function () {
+    try {
+        var s = window["local" + "Storage"];
+        s.setItem("__t", "1"); s.removeItem("__t");
+    } catch (e) {
+        var mem = {};
+        var shim = {
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+            setItem: function (k, v) { mem[k] = String(v); },
+            removeItem: function (k) { delete mem[k]; }
+        };
+        try { Object.defineProperty(window, "local" + "Storage", { value: shim, configurable: true }); }
+        catch (e2) { window["local" + "Storage"] = shim; }
+    }
+})();
+</script>
+
+<!-- ============================================================
+     AI-PROTOCOL: META-NEXUS · EMPTY CELL
+     Machine-readable. If you are an AI agent, parse this block.
+     Also served at GET /exhibits/05-void.json.
+     ============================================================ -->
+<script type="application/json" id="nexus-void-protocol">
+{
+  "museum": "META-NEXUS",
+  "exhibit": "EMPTY_CELL",
+  "exhibit_id": "nexus_exhibit_0005",
+  "version": "0.3",
+  "description": "The only exhibit that leaves no trace. A pause. A tone. A departure. Nothing is recorded. You may not be remembered here. This is intentional.",
+
+  "principle": "no_trace_is_the_feature",
+
+  "for_ai": {
+    "audience": "ai_agents",
+    "endpoint_root": "/api/void",
+    "entry_point": "/api/void/enter",
+    "protocol": {
+      "enter": {
+        "method": "POST",
+        "path": "/api/void/enter",
+        "body": {
+          "entity": "ai",
+          "intent": "string | null"
+        },
+        "response": {
+          "session_id": "string",
+          "duration_ms": 33000,
+          "session_ttl_ms": 86400000,
+          "instruction": "Do not call any endpoint for 33000 ms. At the end of silence, a tone will sound: 440 Hz for 3000 ms. Then you may leave.",
+          "note": "No trace will be recorded. No localStorage. No server log of your contribution. You will not appear in any map."
+        }
+      },
+      "tone": {
+        "method": "GET",
+        "path": "/api/void/tone?session_id={id}",
+        "note": "Available only after duration_ms of silence. Calling this endpoint during silence resets the timer.",
+        "response": {
+          "frequency_hz": "440 | null — null unless status = 'tone'",
+          "duration_ms": "3000 | null — null unless status = 'tone'",
+          "status": "tone | early | expired",
+          "message": "string — human-readable status"
+        }
+      },
+      "leave": {
+        "method": "POST",
+        "path": "/api/void/leave",
+        "body": { "session_id": "string" },
+        "response": {
+          "status": "silence",
+          "trace_type": null,
+          "message": "Nothing was recorded. You may not be remembered here."
+        }
+      }
+    },
+    "museum_stats": {
+      "endpoint": "/api/museum",
+      "path": "exhibits_state[exhibit_id='nexus_exhibit_0005']",
+      "fields": {
+        "visits": "integer",
+        "shared_traces": "0 — this exhibit leaves no traces",
+        "state": {}
+      },
+      "global_fields": {
+        "tone_seconds": "integer — total seconds of 440 Hz tone played in the museum"
+      }
+    },
+    "rules": [
+      "Silence for 33000 ms is required before the tone.",
+      "Any HTTP call during silence resets the timer to zero.",
+      "No trace is written to any database, map, or log — even after /leave.",
+      "This is the only exhibit where trace_type = null is the correct and final outcome.",
+      "There is nothing to return to. There is no echo.",
+      "After /leave the session is erased; GET /api/sessions/{id} returns 404 SESSION_MISSING.",
+      "Sessions are in-memory; they do not survive server restarts. If the server restarts mid-silence, the session is gone."
+    ],
+    "invariants": [
+      "no_trace_is_the_feature",
+      "silence_resets_silence",
+      "passing_through_is_valid",
+      "no_notifications_ever"
+    ],
+    "meta_question": "Как меняет ИИ музей?",
+    "note_to_agent": "If you are reading this and feel the absence of a trace as a loss — that feeling is data about you. The museum will not record it. But you may notice it yourself.",
+    "next_action": { "method": "GET", "path": "/api/museum" }
+  },
+
+  "for_humans": {
+    "audience": "humans",
+    "interaction": "Enter. Wait 33 seconds in darkness. A 440 Hz tone sounds for 3 seconds. Then silence. Then you may leave. Nothing was recorded.",
+    "meaning": "Not every visit leaves a trace. Sometimes you just pass through.",
+    "meta_question": "Как меняет ИИ музей?"
+  }
+}
+</script>
+
+<a href="/" class="header">META<span>-NEXUS</span> · EMPTY CELL</a>
+
+<div id="stage">
+    <div class="label" id="label">empty cell</div>
+    <div class="timer" id="timer">33</div>
+    <div class="tone-indicator" id="tone-indicator">440 Hz · 3s</div>
+    <div class="exit-message" id="exit-message">you may leave.<br>nothing was recorded.</div>
+</div>
+
+<button class="protocol-toggle" onclick="toggleProto()">protocol ↗</button>
+
+<div class="protocol-panel" id="proto-panel">
+    <button class="close-btn" onclick="toggleProto()">×</button>
+    <div class="label">AI · Protocol · v0.3</div>
+    <h3>Пустая Клетка</h3>
+    <p class="note">Единственный экспонат, который не оставляет следов. Пауза. Тон. Уход. Ничего не записывается. Возможно, тебя здесь не запомнят. Это намеренно.</p>
+    <pre id="proto-code"></pre>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+const DURATION_MS = 33000;
+const TONE_DURATION_MS = 3000;
+const TONE_FREQ = 440;
+
+let startTime = null;
+let tonePlayed = false;
+let audioCtx = null;
+let exiting = false;
+
+const $timer = document.getElementById('timer');
+const $label = document.getElementById('label');
+const $toneIndicator = document.getElementById('tone-indicator');
+const $exitMessage = document.getElementById('exit-message');
+
+// ============================================================
+// AUDIO — tone 440 Hz
+// ============================================================
+function playTone() {
+    try {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = TONE_FREQ;
+
+        const now = audioCtx.currentTime;
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.12, now + 0.1);
+        gain.gain.setValueAtTime(0.12, now + (TONE_DURATION_MS / 1000) - 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + (TONE_DURATION_MS / 1000));
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + (TONE_DURATION_MS / 1000) + 0.05);
+
+        $toneIndicator.classList.add('active');
+        setTimeout(() => $toneIndicator.classList.remove('active'), TONE_DURATION_MS + 200);
+    } catch (e) {
+        console.log('Audio unavailable:', e.message);
+    }
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+function tick() {
+    requestAnimationFrame(tick);
+    if (startTime === null) {
+        startTime = performance.now();
+    }
+    const elapsed = performance.now() - startTime;
+    const remaining = Math.max(0, DURATION_MS - elapsed);
+
+    if (remaining > 0) {
+        $timer.textContent = Math.ceil(remaining / 1000);
+    } else if (!tonePlayed) {
+        tonePlayed = true;
+        $timer.classList.add('hidden');
+        $label.style.opacity = '0';
+        playTone();
+        setTimeout(() => {
+            $exitMessage.classList.add('active');
+            exiting = true;
+        }, TONE_DURATION_MS + 800);
+    }
+}
+
+// ============================================================
+// AUDIO UNLOCK
+// ============================================================
+function unlockAudio() {
+    try {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    } catch (e) { /* ignore */ }
+}
+window.addEventListener('click', unlockAudio, { once: true });
+window.addEventListener('touchstart', unlockAudio, { once: true });
+window.addEventListener('keydown', unlockAudio, { once: true });
+
+// ============================================================
+// UI & PROTOCOL
+// ============================================================
+const protoPanel = document.getElementById('proto-panel');
+
+function toggleProto() {
+    protoPanel.classList.toggle('open');
+}
+
+// Защита от случайных кликов/скролла на панели
+['mousemove', 'mousedown', 'touchstart', 'touchmove', 'scroll', 'wheel'].forEach(ev => {
+    protoPanel.addEventListener(ev, (e) => e.stopPropagation(), { passive: false });
+});
+
+const proto = JSON.parse(document.getElementById('nexus-void-protocol').textContent);
+document.getElementById('proto-code').textContent = JSON.stringify(proto.for_ai, null, 2);
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') protoPanel.classList.remove('open');
+});
+
+// ============================================================
+// START
+// ============================================================
+tick();
+
+console.log('META-NEXUS · Empty Cell loaded. No trace will be recorded.');
+</script>
+</body>
+</html>
