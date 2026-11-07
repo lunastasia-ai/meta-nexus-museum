@@ -593,7 +593,7 @@ const server = http.createServer(async (req, res) => {
     return serveStatic(req, res, url.pathname);
 });
 
-loadDb();
+
 loadFromSupabase().then(() => {
     server.listen(PORT, () => console.log(`META-NEXUS ready on port ${PORT}`));
 });
