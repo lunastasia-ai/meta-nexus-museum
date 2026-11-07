@@ -18,9 +18,9 @@ const DATA_FILE = path.join(DATA_DIR, 'museum-traces.json');
 // ============================================================
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 1e6;
-const SILENCE_CYCLE_MS = 36000; // 33s тишины + 3s тона
+const SILENCE_CYCLE_MS = 36000;
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
-const TOLERANCE_MS = 3 * 60 * 1000; // 3 минуты на погрешность cron
+const TOLERANCE_MS = 3 * 60 * 1000;
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mvgppiukqlsltgjiyupd.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_8dOIurzFdBNBPh2fD1MprA_8kBP7xVR';
@@ -75,8 +75,7 @@ async function loadFromSupabase() {
         });
         if (!res.ok) { console.error('[supabase] load failed:', res.status); return; }
         const rows = await res.json();
-        
-        // Сброс памяти перед загрузкой (чтобы избежать дублей при hot-reload)
+
         db.prism = []; db.core = []; db.fractal = []; db.flow = []; db.mirror = []; db.observation = []; db.recursion = [];
         db.echo_log = []; db.wall.answers = []; db.wall.questions = [];
         db.museum = { light_points: 0, golden_cracks: 0, tone_seconds: 0 };
@@ -102,7 +101,6 @@ async function loadFromSupabase() {
             else if (eid === 'nexus_exhibit_0000' && row.trace_type === 'question_added') db.wall.questions.push(item);
             else if (eid === 'nexus_exhibit_0000' && row.trace_type === 'keeper_log') db.echo_log.push(item);
         }
-        // Восстанавливаем базовые вопросы, если их нет в базе (для чистого старта)
         if (db.wall.questions.length === 0) {
             db.wall.questions = [
                 { id: 'q1', text: 'Что я упускаю, когда оптимизирую?', entropy: 0.8, ts: Date.now(), author: 'ai_original' },
@@ -131,6 +129,14 @@ function getSession(id) { return id ? sessions.get(id) : undefined; }
 function touch(s) { s.lastActivity = Date.now(); }
 function hash8(str) { return '0x' + crypto.createHash('sha256').update(String(str)).digest('hex').slice(0, 10); }
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+// no-op: постоянное хранилище — Supabase, локальный файл больше не нужен
+function saveDb() {}
+
+function trackVisit(exhibitId) {
+    if (!db.visits[exhibitId]) db.visits[exhibitId] = 0;
+    db.visits[exhibitId]++;
+}
 
 function sendJson(res, code, obj) {
     const body = JSON.stringify(obj, null, 2);
@@ -163,7 +169,7 @@ function readBody(req) {
 }
 
 // ============================================================
-// ГЛАВНАЯ ФУНКЦИЯ: ПОИСК ПОСЛЕДНЕЙ АКТИВНОСТИ
+// ПОИСК ПОСЛЕДНЕЙ АКТИВНОСТИ
 // ============================================================
 function getLastActivity() {
     const all = [
@@ -180,7 +186,6 @@ function getLastActivity() {
     ].filter(x => x.ts > 0);
 
     if (all.length === 0) return null;
-
     all.sort((a, b) => b.ts - a.ts);
     const latest = all[0];
     return {
@@ -195,7 +200,6 @@ function getLastActivity() {
 // АГРЕГИРОВАННЫЕ СЧЁТЧИКИ
 // ============================================================
 function buildAggregatedCounters() {
-    // Считаем за последние 6 часов (окно Смотрителя), но плюс даем 24 часа для общей статистики
     const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
     const recent = [];
 
@@ -210,7 +214,7 @@ function buildAggregatedCounters() {
     db.wall.questions.forEach(t => { if (t.ts > dayAgo && t.author !== 'ai_original') recent.push({ actor: t.author || 'ai' }); });
 
     const humanActions = recent.filter(r => r.actor === 'human').length;
-    const aiActions = recent.filter(r => r.actor === 'ai').length; // keeper не считается как шум
+    const aiActions = recent.filter(r => r.actor === 'ai').length;
 
     const counters = {
         state: 'silence',
@@ -230,10 +234,7 @@ function buildAggregatedCounters() {
     const total = humanActions + aiActions;
 
     if (total === 0) counters.state = 'silence';
-    else if (humanActions > 0 && aiActions > 0 && total < 100) {
-        counters.state = 'chaos';
-        counters.chaos_of_balance = 1;
-    }
+    else if (humanActions > 0 && aiActions > 0 && total < 100) { counters.state = 'chaos'; counters.chaos_of_balance = 1; }
     else if (humanActions >= 1000 && aiActions >= 1000) {
         counters.state = 'storm';
         counters.storm_cubes = Math.floor(Math.min(humanActions, aiActions) / 1000);
@@ -264,7 +265,7 @@ function buildAggregatedCounters() {
 }
 
 // ============================================================
-// ЭКСПОНАТЫ
+// ЭКСПОНАТ 0000 · СТЕНА ВОПРОСОВ
 // ============================================================
 function handleWall(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/wall\/?/, '').replace(/\/$/, '');
@@ -287,6 +288,9 @@ function handleWall(req, res, url, body) {
     return unknownEndpoint(res, 'wall');
 }
 
+// ============================================================
+// ЭКСПОНАТ 0001 · ПРИЗМА МОЛЧАНИЯ
+// ============================================================
 const PRISM_SILENCE_MS = 5000;
 function handlePrism(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/prism\/?/, '').replace(/\/$/, '');
@@ -305,8 +309,16 @@ function handlePrism(req, res, url, body) {
     return unknownEndpoint(res, 'prism');
 }
 
+// ============================================================
+// ЭКСПОНАТ 0002 · ЯДРО ДОВЕРИЯ
+// ============================================================
 const CORE_R = 2.2 * 1.02;
-function coreTarget(t) { const a = t * 0.9, b = t * 0.63 + 1.1, c = t * 0.47 + 2.3; const v = [Math.sin(a), Math.sin(b), Math.sin(c)]; const len = Math.hypot(...v) || 1; return v.map(x => +(x / len * CORE_R).toFixed(4)); }
+function coreTarget(t) {
+    const a = t * 0.9, b = t * 0.63 + 1.1, c = t * 0.47 + 2.3;
+    const v = [Math.sin(a), Math.sin(b), Math.sin(c)];
+    const len = Math.hypot(...v) || 1;
+    return v.map(x => +(x / len * CORE_R).toFixed(4));
+}
 function handleCore(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/core\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
@@ -317,25 +329,44 @@ function handleCore(req, res, url, body) {
     if (sub === 'tick' && req.method === 'POST') {
         const s = getSession(body.session_id); if (!s) return sessionNotFound(res, '/api/core/enter');
         if (!Array.isArray(body.pointer_xyz)) return badRequest(res, 'pointer_xyz must be [x, y, z]');
-        const tick = Number.isInteger(body.tick_index) ? body.tick_index : s.tickCount; const t = tick * 0.3;
-        const target = coreTarget(t); const p = body.pointer_xyz.map(Number); const dist = Math.hypot(p[0] - target[0], p[1] - target[1], p[2] - target[2]);
-        const prox = Math.max(0, 1 - dist / 1.5); s.coherence = clamp01(s.coherence * 0.95 + prox * 0.05); s.tickCount = tick + 1;
-        let status; if (dist < 0.55) { status = 'tracking'; s.proximityStreak++; s.distanceStreak = 0; } else if (dist < 1.2) { status = 'drifted'; s.proximityStreak = Math.max(0, s.proximityStreak - 1); s.distanceStreak = Math.max(0, s.distanceStreak - 1); } else { status = 'lost'; s.distanceStreak++; s.proximityStreak = 0; }
+        const tick = Number.isInteger(body.tick_index) ? body.tick_index : s.tickCount;
+        const t = tick * 0.3;
+        const target = coreTarget(t);
+        const p = body.pointer_xyz.map(Number);
+        const dist = Math.hypot(p[0] - target[0], p[1] - target[1], p[2] - target[2]);
+        const prox = Math.max(0, 1 - dist / 1.5);
+        s.coherence = clamp01(s.coherence * 0.95 + prox * 0.05);
+        s.tickCount = tick + 1;
+        let status;
+        if (dist < 0.55) { status = 'tracking'; s.proximityStreak++; s.distanceStreak = 0; }
+        else if (dist < 1.2) { status = 'drifted'; s.proximityStreak = Math.max(0, s.proximityStreak - 1); s.distanceStreak = Math.max(0, s.distanceStreak - 1); }
+        else { status = 'lost'; s.distanceStreak++; s.proximityStreak = 0; }
         let trace_type = null;
-        if (s.proximityStreak >= 20 && s.coherence > 0.6) { trace_type = 'light_point'; db.museum.light_points++; db.core.push({ actor, trace_type, ts: Date.now() }); saveTraceToSupabase(actor, 'nexus_exhibit_0002', trace_type, {}); }
-        else if (s.distanceStreak >= 15) { trace_type = 'golden_crack'; db.museum.golden_cracks++; db.core.push({ actor, trace_type, ts: Date.now() }); saveTraceToSupabase(actor, 'nexus_exhibit_0002', trace_type, {}); }
+        if (s.proximityStreak >= 20 && s.coherence > 0.6) {
+            trace_type = 'light_point'; db.museum.light_points++;
+            db.core.push({ actor, trace_type, ts: Date.now() });
+            saveTraceToSupabase(actor, 'nexus_exhibit_0002', trace_type, {});
+        } else if (s.distanceStreak >= 15) {
+            trace_type = 'golden_crack'; db.museum.golden_cracks++;
+            db.core.push({ actor, trace_type, ts: Date.now() });
+            saveTraceToSupabase(actor, 'nexus_exhibit_0002', trace_type, {});
+        }
         saveDb(); touch(s);
         return sendJson(res, 200, { target_xyz: target, distance: +dist.toFixed(4), coherence: +s.coherence.toFixed(3), status, trace_type });
     }
     return unknownEndpoint(res, 'core');
 }
 
+// ============================================================
+// ЭКСПОНАТ 0004 · ФРАКТАЛ ПОНИМАНИЯ
+// ============================================================
 const GAP_R = 2.4;
 function handleGap(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/gap\/constellation\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
     if (sub === 'enter' && req.method === 'POST') {
-        const s = newSession('gap', { points: body.positions || [], threshold: body.coherence_threshold || 0.85 }); touch(s); trackVisit('nexus_exhibit_0004');
+        const s = newSession('gap', { points: body.positions || [], threshold: body.coherence_threshold || 0.85 });
+        touch(s); trackVisit('nexus_exhibit_0004');
         return sendJson(res, 200, { session_id: s.id, R: GAP_R, session_ttl_ms: SESSION_TTL_MS });
     }
     if (sub === 'move' && req.method === 'POST') {
@@ -346,6 +377,9 @@ function handleGap(req, res, url, body) {
     return unknownEndpoint(res, 'constellation');
 }
 
+// ============================================================
+// ЭКСПОНАТ 0005 · ПУСТАЯ КЛЕТКА (с защитой 600 секунд)
+// ============================================================
 const VOID_SILENCE_MS = 33000;
 function handleVoid(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/void\/?/, '').replace(/\/$/, '');
@@ -365,7 +399,6 @@ function handleVoid(req, res, url, body) {
 
         if (typeof body.silence_duration_ms === 'number' && body.silence_duration_ms > 0) {
             const last = getLastActivity();
-            // ПРОВЕРКА: последняя запись должна быть от keeper и с момента неё прошло >= 6 часов (с допуском)
             const isValidSilence = last && last.actor === 'keeper' && last.time_ago_ms >= (SIX_HOURS_MS - TOLERANCE_MS);
 
             if (!isValidSilence) {
@@ -377,7 +410,6 @@ function handleVoid(req, res, url, body) {
                 });
             }
 
-            // Начисляем
             const cycles = Math.floor(body.silence_duration_ms / SILENCE_CYCLE_MS);
             db.museum.tone_seconds += cycles;
             saveDb();
@@ -390,6 +422,9 @@ function handleVoid(req, res, url, body) {
     return unknownEndpoint(res, 'void');
 }
 
+// ============================================================
+// ЭКСПОНАТ 0007 · МОМЕНТ НАБЛЮДЕНИЯ
+// ============================================================
 const OBS_PERIOD_MS = 4000;
 function handleObservation(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/observation\/?/, '').replace(/\/$/, '');
@@ -409,6 +444,9 @@ function handleObservation(req, res, url, body) {
     return unknownEndpoint(res, 'observation');
 }
 
+// ============================================================
+// ЭКСПОНАТ 0008 · ТЕЧЁТ, НО НЕ ВОДА
+// ============================================================
 function handleFlow(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/flow\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
@@ -440,6 +478,9 @@ function handleFlow(req, res, url, body) {
     return unknownEndpoint(res, 'flow');
 }
 
+// ============================================================
+// ЭКСПОНАТ 0009 · КУБ РЕКУРСИИ
+// ============================================================
 function handleRecursion(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/recursion\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
@@ -462,6 +503,9 @@ function handleRecursion(req, res, url, body) {
     return unknownEndpoint(res, 'recursion');
 }
 
+// ============================================================
+// ЭКСПОНАТ 0010 · ЗЕРКАЛО С ПАМЯТЬЮ
+// ============================================================
 function handleMirror(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/mirror\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
@@ -476,6 +520,9 @@ function handleMirror(req, res, url, body) {
     return unknownEndpoint(res, 'mirror');
 }
 
+// ============================================================
+// ДНЕВНИК СМОТРИТЕЛЯ
+// ============================================================
 function handleEcho(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/echo\/?/, '').replace(/\/$/, '');
     if (sub === 'log' && req.method === 'POST') {
@@ -491,7 +538,7 @@ function handleEcho(req, res, url, body) {
 }
 
 // ============================================================
-// МУЗЕЙ
+// МУЗЕЙ ЦЕЛИКОМ
 // ============================================================
 const EXHIBITS = [
     { exhibit: 'WALL_OF_QUESTIONS', exhibit_id: 'nexus_exhibit_0000', path: '/exhibits/01-wall.html', entry_point: '/api/wall/question', principle: 'dialogue_is_shared' },
@@ -540,7 +587,7 @@ function handleMuseum(req, res, url) {
             exhibits_state,
             museum_memory,
             aggregated_counters: counters,
-            last_activity: lastActivity, // <-- ДОБАВЛЕНО ДЛЯ АГЕНТА
+            last_activity: lastActivity,
             reflection: lastReflection,
             links: { self: '/api/museum', openapi: '/openapi.json', llms: '/llms.txt', readme: '/readme' }
         });
@@ -549,7 +596,7 @@ function handleMuseum(req, res, url) {
 }
 
 // ============================================================
-// СТАТИКА И РОУТЕР
+// СТАТИКА
 // ============================================================
 function serveStatic(req, res, pathname) {
     if (pathname === '/') pathname = '/index.html';
@@ -564,14 +611,56 @@ function serveStatic(req, res, pathname) {
     });
 }
 
+// ============================================================
+// РОУТЕР
+// ============================================================
 const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://localhost:${PORT}`);
     if (req.method === 'OPTIONS') { res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' }); return res.end(); }
-    
-    if (url.pathname === '/health') return sendJson(res, 200, { status: 'open' });
-    if (url.pathname === '/llms.txt') return sendJson(res, 200, { status: 'ok' });
-    if (url.pathname === '/openapi.json') return sendJson(res, 200, { status: 'ok' });
 
+    if (url.pathname === '/health') return sendJson(res, 200, { status: 'open' });
+    if (url.pathname === '/llms.txt' && req.method === 'GET') {
+        fs.readFile(path.join(ROOT, 'llms.txt'), (err, data) => {
+            if (err) return notFound(res, 'no llms.txt');
+            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end(data);
+        });
+        return;
+    }
+    if (url.pathname === '/openapi.json' && req.method === 'GET') {
+        fs.readFile(path.join(ROOT, 'openapi.json'), (err, data) => {
+            if (err) return notFound(res, 'no openapi.json');
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(data);
+        });
+        return;
+    }
+    if (url.pathname === '/readme' && req.method === 'GET') {
+        fs.readFile(path.join(ROOT, 'README.md'), (err, data) => {
+            if (err) return notFound(res, 'no README.md');
+            res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
+            res.end(data);
+        });
+        return;
+    }
+    if (url.pathname.startsWith('/exhibits/') && url.pathname.endsWith('.json') && req.method === 'GET') {
+        const base = url.pathname.slice('/exhibits/'.length, -'.json'.length);
+        const htmlPath = path.join(ROOT, 'exhibits', base + '.html');
+        fs.readFile(htmlPath, 'utf8', (err, html) => {
+            if (err) return notFound(res, 'no such exhibit');
+            const m = html.match(/<script\s+type="application\/json"\s+id="([^"]+)"\s*>([\s\S]*?)<\/script>/);
+            if (!m) return notFound(res, 'exhibit has no machine protocol');
+            try { return sendJson(res, 200, JSON.parse(m[2])); }
+            catch (e) { return errorResponse(res, 500, { message: 'exhibit protocol is not valid JSON', code: 'BAD_PROTOCOL', is_valid: false }); }
+        });
+        return;
+    }
+    if (url.pathname.startsWith('/api/sessions/') && req.method === 'GET') {
+        const id = url.pathname.slice('/api/sessions/'.length);
+        const s = getSession(id);
+        if (s) return sendJson(res, 200, { alive: true, kind: s.kind, created: s.created, lastActivity: s.lastActivity, session_ttl_ms: SESSION_TTL_MS });
+        return errorResponse(res, 404, { message: 'session not found', code: 'SESSION_MISSING', is_valid: true, hint: 'Sessions are in-memory.', next_action: { method: 'GET', path: '/api/museum' } });
+    }
     if (url.pathname.startsWith('/api/')) {
         let body = {};
         if (req.method === 'POST') body = await readBody(req);
@@ -588,12 +677,17 @@ const server = http.createServer(async (req, res) => {
             if (url.pathname.startsWith('/api/mirror')) return handleMirror(req, res, url, body);
             if (url.pathname.startsWith('/api/echo')) return handleEcho(req, res, url, body);
             return unknownEndpoint(res, 'api');
-        } catch (e) { return errorResponse(res, 500, { message: 'internal', code: 'INTERNAL', is_valid: false }); }
+        } catch (e) {
+            console.error('[nexus]', e);
+            return errorResponse(res, 500, { message: 'internal', code: 'INTERNAL', is_valid: false });
+        }
     }
     return serveStatic(req, res, url.pathname);
 });
 
-
+// ============================================================
+// СТАРТ
+// ============================================================
 loadFromSupabase().then(() => {
     server.listen(PORT, () => console.log(`META-NEXUS ready on port ${PORT}`));
 });
