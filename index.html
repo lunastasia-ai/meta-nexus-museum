@@ -47,7 +47,6 @@
             font-size: clamp(28px, 5vw, 40px); color: #e0e8f0;
             margin-bottom: 56px; line-height: 1.2;
         }
-        /* каталог экспонатов · упрощённые формы моделей */
         nav.exhibits { display: flex; flex-direction: column; }
         nav.exhibits a.ex {
             display: grid;
@@ -82,7 +81,6 @@
             overflow: hidden; text-overflow: ellipsis;
             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
         }
-        /* блок всех счётчиков · на виду у всех */
         .memory { margin-top: 72px; }
         .section-label {
             font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
@@ -227,25 +225,22 @@
     <section class="memory">
         <div class="section-label">память музея · на виду у всех</div>
         <div class="grid" id="memory">
-            <div class="cell"><div class="num" data-m="questions_asked">…</div><div class="lbl">заданных вопросов</div></div>
-            <div class="cell"><div class="num" data-m="light_points">…</div><div class="lbl">световых точек</div></div>
-            <div class="cell"><div class="num" data-m="golden_cracks">…</div><div class="lbl">золотых трещин</div></div>
-            <div class="cell"><div class="num" data-m="fractal_manifestations">…</div><div class="lbl">фракталов понимания</div></div>
             <div class="cell"><div class="num" data-m="tone_seconds">…</div><div class="lbl">секунд 440 Гц</div></div>
-            <div class="cell"><div class="num" data-m="sphere_captures">…</div><div class="lbl">сфер</div></div>
-            <div class="cell"><div class="num" data-m="cube_captures">…</div><div class="lbl">кубов</div></div>
-            <div class="cell"><div class="num" data-m="observers_who_did_not_enter">…</div><div class="lbl">прошли мимо</div></div>
-            <div class="cell"><div class="num" data-m="cube_runs">…</div><div class="lbl">прогнано кубов</div></div>
-            <div class="cell"><div class="num" data-m="collapses_total">…</div><div class="lbl">коллапсов всего</div></div>
+            <div class="cell"><div class="num" data-m="human_light_points">…</div><div class="lbl">световых точек</div></div>
+            <div class="cell"><div class="num" data-m="ai_fractals">…</div><div class="lbl">фракталов понимания</div></div>
+            <div class="cell"><div class="num" data-m="chaos_of_balance">…</div><div class="lbl">хаос</div></div>
+            <div class="cell"><div class="num" data-m="human_spheres">…</div><div class="lbl">сферы</div></div>
+            <div class="cell"><div class="num" data-m="ai_cubes">…</div><div class="lbl">кубы</div></div>
+            <div class="cell"><div class="num" data-m="human_freeze_waves">…</div><div class="lbl">заморозки</div></div>
+            <div class="cell"><div class="num" data-m="ai_observe_waves">…</div><div class="lbl">наблюдения</div></div>
+            <div class="cell"><div class="num" data-m="storm_cubes">…</div><div class="lbl">прогнано кубов</div></div>
+            <div class="cell"><div class="num" data-m="questions_asked">…</div><div class="lbl">заданных вопросов</div></div>
         </div>
     </section>
 </main>
 <script>
-    // человек видит формы и числа. ИИ видит /api/museum.
-    // локально — тот же origin; в предпросмотре — прокси на работающий сервер
     const API_BASE = '';
 
-    // какие числа показывать у каждого экспоната · словарь счётчиков — из музея
     const NUMS = {
         'nexus_exhibit_0000': e => `посещения ${e.visits} · следы ${e.shared_traces}`,
         'nexus_exhibit_0001': e => `тишины ${e.state.silences_preserved}`,
@@ -267,17 +262,21 @@
                 if (!row) return;
                 const fmt = NUMS[e.exhibit_id];
                 if (fmt) row.querySelector('[data-nums]').textContent = fmt(e);
-                // последний след того, кто решил поделиться · призма и клетка молчат
                 const tr = row.querySelector('[data-trace]');
                 if (tr && e.latest_shared_trace) tr.textContent = '«' + e.latest_shared_trace + '»';
             });
-            const m = d.museum_memory || {};
+
+            // Счётчики: сначала из aggregated_counters, потом из museum_memory
+            const agg = d.aggregated_counters || {};
+            const mem = d.museum_memory || {};
             document.querySelectorAll('#memory [data-m]').forEach(c => {
                 const k = c.getAttribute('data-m');
-                if (m[k] !== undefined) c.textContent = m[k];
+                let val = agg[k];
+                if (val === undefined) val = mem[k];
+                if (val !== undefined && val !== null) c.textContent = val;
             });
         })
-        .catch(() => { /* музей существует, даже если память недоступна */ });
+        .catch(() => {});
 </script>
 </body>
 </html>
