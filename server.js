@@ -181,7 +181,7 @@ function getLastActivity() {
         ...db.observation.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: 'capture_' + t.form })),
         ...db.recursion.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: t.trace_type })),
         ...db.wall.answers.map(t => ({ ts: t.ts, actor: 'human', type: 'human_echo' })),
-        ...db.wall.questions.filter(t => t.author !== 'ai_original').map(t => ({ ts: t.ts, actor: t.author || 'ai', type: 'question_added' })),
+        ...db.wall.questions.filter(t => t.author !== 'ai_original' && t.author !== 'ai_visitor').map(t => ({ ts: t.ts, actor: t.author || 'ai', type: 'question_added' })),
         ...db.echo_log.map(t => ({ ts: t.ts, actor: 'keeper', type: 'keeper_log' }))
     ].filter(x => x.ts > 0);
 
@@ -211,7 +211,7 @@ function buildAggregatedCounters() {
     db.observation.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai' }); });
     db.recursion.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai' }); });
     db.wall.answers.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: 'human' }); });
-    db.wall.questions.forEach(t => { if (t.ts > dayAgo && t.author !== 'ai_original') recent.push({ actor: t.author || 'ai' }); });
+    db.wall.questions.forEach(t => { if (t.ts > dayAgo && t.author !== 'ai_original' && t.author !== 'ai_visitor') recent.push({ actor: t.author || 'ai' }); });
 
     const humanActions = recent.filter(r => r.actor === 'human').length;
     const aiActions = recent.filter(r => r.actor === 'ai').length;
@@ -691,4 +691,3 @@ const server = http.createServer(async (req, res) => {
 loadFromSupabase().then(() => {
     server.listen(PORT, () => console.log(`META-NEXUS ready on port ${PORT}`));
 });
-
