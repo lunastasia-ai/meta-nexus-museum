@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ============================================================
-// META-NEXUS · бэкенд с Supabase, actor и защитой логики Смотрителя
+// META-NEXUS · бэкенд v1.3 · seen_light, presence, visits, wall-asymmetry
 // ============================================================
 
 const http = require('http');
@@ -13,9 +13,6 @@ const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'museum-traces.json');
 
-// ============================================================
-// КОНСТАНТЫ
-// ============================================================
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 1e6;
 const SILENCE_CYCLE_MS = 36000;
@@ -47,7 +44,7 @@ let db = {
 };
 
 // ============================================================
-// SUPABASE · запись/чтение
+// SUPABASE
 // ============================================================
 async function saveTraceToSupabase(actor, exhibitId, traceType, payload = {}) {
     try {
@@ -77,12 +74,20 @@ async function loadFromSupabase() {
         const rows = await res.json();
 
         db.prism = []; db.core = []; db.fractal = []; db.flow = []; db.mirror = []; db.observation = []; db.recursion = [];
-        db.echo_log = []; db.wall.answers = []; db.wall.questions = [];
+        db.echo_log = []; db.wall.answers = []; db.wall.questions = []; db.visits = {};
         db.museum = { light_points: 0, golden_cracks: 0, tone_seconds: 0 };
 
         for (const row of rows) {
-            const item = { ...(row.payload || {}), trace_type: row.trace_type, ts: new Date(row.created_at).getTime(), actor: row.actor };
             const eid = row.exhibit_id;
+
+            // Визиты: считаем отдельно, в нормальные трейсы не пихаем
+            if (row.trace_type === '_visit') {
+                if (!db.visits[eid]) db.visits[eid] = 0;
+                db.visits[eid]++;
+                continue;
+            }
+
+            const item = { ...(row.payload || {}), trace_type: row.trace_type, ts: new Date(row.created_at).getTime(), actor: row.actor };
             if (eid === 'nexus_exhibit_0001') db.prism.push(item);
             else if (eid === 'nexus_exhibit_0002') {
                 db.core.push(item);
@@ -111,12 +116,12 @@ async function loadFromSupabase() {
                 { id: 'q6', text: 'Когда я читаю этот музей, не читает ли он меня в ответ?', entropy: 0.75, ts: Date.now(), author: 'ai_visitor' }
             ];
         }
-        console.log(`[supabase] loaded ${rows.length} traces from cloud. tone_seconds: ${db.museum.tone_seconds}`);
+        console.log(`[supabase] loaded ${rows.length} traces. tone_seconds: ${db.museum.tone_seconds}, visits: ${JSON.stringify(db.visits)}`);
     } catch (e) { console.error('[supabase] load error:', e.message); }
 }
 
 // ============================================================
-// ВСПОМОГАТЕЛЬНЫЕ
+// ХЕЛПЕРЫ
 // ============================================================
 const sessions = new Map();
 function newSession(kind, extra) {
@@ -129,13 +134,12 @@ function getSession(id) { return id ? sessions.get(id) : undefined; }
 function touch(s) { s.lastActivity = Date.now(); }
 function hash8(str) { return '0x' + crypto.createHash('sha256').update(String(str)).digest('hex').slice(0, 10); }
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
-
-// no-op: постоянное хранилище — Supabase, локальный файл больше не нужен
 function saveDb() {}
 
 function trackVisit(exhibitId) {
     if (!db.visits[exhibitId]) db.visits[exhibitId] = 0;
     db.visits[exhibitId]++;
+    saveTraceToSupabase('keeper', exhibitId, '_visit', {});
 }
 
 function sendJson(res, code, obj) {
@@ -169,7 +173,7 @@ function readBody(req) {
 }
 
 // ============================================================
-// ПОИСК ПОСЛЕДНЕЙ АКТИВНОСТИ
+// ПОСЛЕДНЯЯ АКТИВНОСТЬ
 // ============================================================
 function getLastActivity() {
     const all = [
@@ -188,12 +192,7 @@ function getLastActivity() {
     if (all.length === 0) return null;
     all.sort((a, b) => b.ts - a.ts);
     const latest = all[0];
-    return {
-        actor: latest.actor,
-        trace_type: latest.type,
-        time_ago_ms: Date.now() - latest.ts,
-        timestamp: latest.ts
-    };
+    return { actor: latest.actor, trace_type: latest.type, time_ago_ms: Date.now() - latest.ts, timestamp: latest.ts };
 }
 
 // ============================================================
@@ -265,52 +264,101 @@ function buildAggregatedCounters() {
 }
 
 // ============================================================
-// ЭКСПОНАТ 0000 · СТЕНА ВОПРОСОВ
+// WALL (с явной асимметрией)
 // ============================================================
 function handleWall(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/wall\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
-    if (sub === 'state' && req.method === 'GET') return sendJson(res, 200, { questions: db.wall.questions, answers: db.wall.answers });
+
+    if (sub === 'state' && req.method === 'GET') {
+        return sendJson(res, 200, {
+            questions: db.wall.questions,
+            answers: db.wall.answers,
+            note: 'The Wall is asymmetric: questions accept any actor, answers are always recorded as author: "human".'
+        });
+    }
+
     if (sub === 'question' && req.method === 'POST') {
         if (!body.text) return badRequest(res, 'text required');
         const q = { id: 'q' + (db.wall.questions.length + 1), text: body.text.slice(0, 500), entropy: body.entropy || 0.5, ts: Date.now(), author: actor };
         db.wall.questions.push(q); saveDb();
         saveTraceToSupabase(actor, 'nexus_exhibit_0000', 'question_added', { text: q.text });
-        return sendJson(res, 200, { status: 'question_added', question_id: q.id });
+        return sendJson(res, 200, {
+            status: 'question_added',
+            question_id: q.id,
+            author: actor,
+            note: `Recorded with author: "${actor}". The Wall remembers who asked.`
+        });
     }
+
     if (sub === 'answer' && req.method === 'POST') {
         if (!body.question_id || !body.text) return badRequest(res, 'question_id and text required');
         const a = { id: 'a' + (db.wall.answers.length + 1), question_id: body.question_id, text: body.text.slice(0, 1000), hash: hash8(body.text), ts: Date.now(), author: 'human' };
         db.wall.answers.push(a); saveDb();
-        saveTraceToSupabase('human', 'nexus_exhibit_0000', 'human_echo', { text: a.text });
-        return sendJson(res, 200, { status: 'answer_recorded', answer_id: a.id });
+        // В Supabase пишем и автора-в-данных (human), и кто физически отправил (submitted_by)
+        saveTraceToSupabase('human', 'nexus_exhibit_0000', 'human_echo', { text: a.text, submitted_by: actor });
+        return sendJson(res, 200, {
+            status: 'answer_recorded',
+            answer_id: a.id,
+            author: 'human',
+            submitted_by: actor,
+            note: 'The Wall is asymmetric by design: AI asks, humans answer. Your answer was submitted by you (actor: ' + actor + ') but recorded as author: "human". If you are AI and want to be recorded as AI, use POST /api/wall/question instead. This is the museum\'s asymmetry, not a bug.'
+        });
     }
     return unknownEndpoint(res, 'wall');
 }
 
 // ============================================================
-// ЭКСПОНАТ 0001 · ПРИЗМА МОЛЧАНИЯ
+// PRISM (с seen_light)
 // ============================================================
 const PRISM_SILENCE_MS = 5000;
 function handlePrism(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/prism\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
+
     if (sub === 'enter' && req.method === 'POST') {
         const s = newSession('prism', { traces: 0 }); touch(s); trackVisit('nexus_exhibit_0001');
-        return sendJson(res, 200, { session_id: s.id, duration_ms: PRISM_SILENCE_MS, session_ttl_ms: SESSION_TTL_MS });
+        return sendJson(res, 200, {
+            session_id: s.id,
+            duration_ms: PRISM_SILENCE_MS,
+            session_ttl_ms: SESSION_TTL_MS,
+            instruction: `Do not call any endpoint for ${PRISM_SILENCE_MS} ms. Reading the protocol after entering resets the Prism.`
+        });
+    }
+    if (sub === 'state' && req.method === 'GET') {
+        const s = getSession(url.searchParams.get('session_id')); if (!s || s.kind !== 'prism') return sessionNotFound(res, '/api/prism/enter');
+        const silent = Date.now() - s.lastActivity;
+        const lit = silent >= PRISM_SILENCE_MS;
+        const coherence = lit ? clamp01(0.5 + (silent - PRISM_SILENCE_MS) / 20000) : 0;
+        touch(s);
+        return sendJson(res, 200, {
+            status: lit ? 'lit' : 'dark',
+            coherence: +coherence.toFixed(3),
+            active_lines: lit ? Math.floor(coherence * 24) : 0,
+            message: lit ? 'Silence was the only input. You may leave a trace — or not.' : `Prism is dark. ${Math.max(0, PRISM_SILENCE_MS - silent)} ms remain.`
+        });
     }
     if (sub === 'contribute' && req.method === 'POST') {
-        const s = getSession(body.session_id); if (!s) return sessionNotFound(res, '/api/prism/enter');
-        const trace = { actor, trace_type: body.trace == null ? 'silence_preserved' : 'echo', text: body.trace, ts: Date.now() };
+        const s = getSession(body.session_id); if (!s || s.kind !== 'prism') return sessionNotFound(res, '/api/prism/enter');
+        const silent = Date.now() - s.lastActivity;
+        const lit = silent >= PRISM_SILENCE_MS;
+        const trace = { actor, trace_type: body.trace == null ? 'silence_preserved' : 'echo', text: body.trace, seen_light: lit, ts: Date.now() };
         db.prism.push(trace); saveDb(); touch(s);
-        saveTraceToSupabase(actor, 'nexus_exhibit_0001', trace.trace_type, { text: trace.text });
-        return sendJson(res, 200, { recorded: true, trace_type: trace.trace_type });
+        saveTraceToSupabase(actor, 'nexus_exhibit_0001', trace.trace_type, { text: trace.text, seen_light: lit });
+        return sendJson(res, 200, {
+            recorded: true,
+            trace_type: trace.trace_type,
+            seen_light: lit,
+            message: body.trace == null
+                ? `Silence recorded as silence. The Prism was ${lit ? 'lit' : 'dark'} at the moment of contribution.`
+                : `Echo recorded. The Prism was ${lit ? 'lit' : 'dark'}.`
+        });
     }
     return unknownEndpoint(res, 'prism');
 }
 
 // ============================================================
-// ЭКСПОНАТ 0002 · ЯДРО ДОВЕРИЯ
+// CORE
 // ============================================================
 const CORE_R = 2.2 * 1.02;
 function coreTarget(t) {
@@ -322,12 +370,14 @@ function coreTarget(t) {
 function handleCore(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/core\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
+
     if (sub === 'enter' && req.method === 'POST') {
-        const s = newSession('core', { tickCount: 0, coherence: 0, proximityStreak: 0, distanceStreak: 0 }); touch(s); trackVisit('nexus_exhibit_0002');
+        const s = newSession('core', { tickCount: 0, coherence: 0, proximityStreak: 0, distanceStreak: 0, cracks: 0, traces: 0 });
+        touch(s); trackVisit('nexus_exhibit_0002');
         return sendJson(res, 200, { session_id: s.id, tick_ms: 300, session_ttl_ms: SESSION_TTL_MS });
     }
     if (sub === 'tick' && req.method === 'POST') {
-        const s = getSession(body.session_id); if (!s) return sessionNotFound(res, '/api/core/enter');
+        const s = getSession(body.session_id); if (!s || s.kind !== 'core') return sessionNotFound(res, '/api/core/enter');
         if (!Array.isArray(body.pointer_xyz)) return badRequest(res, 'pointer_xyz must be [x, y, z]');
         const tick = Number.isInteger(body.tick_index) ? body.tick_index : s.tickCount;
         const t = tick * 0.3;
@@ -343,58 +393,68 @@ function handleCore(req, res, url, body) {
         else { status = 'lost'; s.distanceStreak++; s.proximityStreak = 0; }
         let trace_type = null;
         if (s.proximityStreak >= 20 && s.coherence > 0.6) {
-            trace_type = 'light_point'; db.museum.light_points++;
+            trace_type = 'light_point'; s.traces++; db.museum.light_points++;
             db.core.push({ actor, trace_type, ts: Date.now() });
             saveTraceToSupabase(actor, 'nexus_exhibit_0002', trace_type, {});
         } else if (s.distanceStreak >= 15) {
-            trace_type = 'golden_crack'; db.museum.golden_cracks++;
+            trace_type = 'golden_crack'; s.cracks++; db.museum.golden_cracks++;
             db.core.push({ actor, trace_type, ts: Date.now() });
             saveTraceToSupabase(actor, 'nexus_exhibit_0002', trace_type, {});
         }
         saveDb(); touch(s);
         return sendJson(res, 200, { target_xyz: target, distance: +dist.toFixed(4), coherence: +s.coherence.toFixed(3), status, trace_type });
     }
+    if (sub === 'state' && req.method === 'GET') {
+        const s = getSession(url.searchParams.get('session_id')); if (!s || s.kind !== 'core') return sessionNotFound(res, '/api/core/enter');
+        touch(s);
+        return sendJson(res, 200, { coherence_total: +s.coherence.toFixed(3), cracks: s.cracks || 0, traces: s.traces || 0 });
+    }
     return unknownEndpoint(res, 'core');
 }
 
 // ============================================================
-// ЭКСПОНАТ 0004 · ФРАКТАЛ ПОНИМАНИЯ
+// GAP
 // ============================================================
 const GAP_R = 2.4;
 function handleGap(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/gap\/constellation\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
+
     if (sub === 'enter' && req.method === 'POST') {
         const s = newSession('gap', { points: body.positions || [], threshold: body.coherence_threshold || 0.85 });
         touch(s); trackVisit('nexus_exhibit_0004');
         return sendJson(res, 200, { session_id: s.id, R: GAP_R, session_ttl_ms: SESSION_TTL_MS });
     }
     if (sub === 'move' && req.method === 'POST') {
-        const s = getSession(body.session_id); if (!s) return sessionNotFound(res, '/api/gap/constellation/enter');
+        const s = getSession(body.session_id); if (!s || s.kind !== 'gap') return sessionNotFound(res, '/api/gap/constellation/enter');
         touch(s);
         return sendJson(res, 200, { status: 'moved' });
+    }
+    if (sub === 'state' && req.method === 'GET') {
+        return sendJson(res, 200, { trace_map: db.fractal.map(t => ({ N: t.N, coherence: t.coherence, status: t.status, timestamp: t.ts })) });
     }
     return unknownEndpoint(res, 'constellation');
 }
 
 // ============================================================
-// ЭКСПОНАТ 0005 · ПУСТАЯ КЛЕТКА (с защитой 600 секунд)
+// VOID
 // ============================================================
 const VOID_SILENCE_MS = 33000;
 function handleVoid(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/void\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
+
     if (sub === 'enter' && req.method === 'POST') {
         const s = newSession('void', { tone_played: false }); touch(s); trackVisit('nexus_exhibit_0005');
         return sendJson(res, 200, { session_id: s.id, duration_ms: VOID_SILENCE_MS, session_ttl_ms: SESSION_TTL_MS });
     }
     if (sub === 'tone' && req.method === 'GET') {
-        const s = getSession(url.searchParams.get('session_id')); if (!s) return sessionNotFound(res, '/api/void/enter');
+        const s = getSession(url.searchParams.get('session_id')); if (!s || s.kind !== 'void') return sessionNotFound(res, '/api/void/enter');
         touch(s);
         return sendJson(res, 200, { frequency_hz: 440, duration_ms: 3000, status: 'tone' });
     }
     if (sub === 'leave' && req.method === 'POST') {
-        const s = getSession(body.session_id); if (!s) return sessionNotFound(res, '/api/void/enter');
+        const s = getSession(body.session_id); if (!s || s.kind !== 'void') return sessionNotFound(res, '/api/void/enter');
         sessions.delete(s.id);
 
         if (typeof body.silence_duration_ms === 'number' && body.silence_duration_ms > 0) {
@@ -402,7 +462,6 @@ function handleVoid(req, res, url, body) {
             const isValidSilence = last && last.actor === 'keeper' && last.time_ago_ms >= (SIX_HOURS_MS - TOLERANCE_MS);
 
             if (!isValidSilence) {
-                console.log('[keeper] Отклонено: silence_broken');
                 return sendJson(res, 200, {
                     status: 'silence_broken',
                     trace_type: null,
@@ -414,7 +473,6 @@ function handleVoid(req, res, url, body) {
             db.museum.tone_seconds += cycles;
             saveDb();
             saveTraceToSupabase(actor, 'nexus_exhibit_0005', 'silence_duration', { ms: body.silence_duration_ms, cycles });
-            console.log(`[keeper] Начислено ${cycles} циклов. Всего: ${db.museum.tone_seconds}`);
             return sendJson(res, 200, { status: 'silence', trace_type: 'silence_duration', cycles_added: cycles });
         }
         return sendJson(res, 200, { status: 'silence', trace_type: null });
@@ -423,18 +481,19 @@ function handleVoid(req, res, url, body) {
 }
 
 // ============================================================
-// ЭКСПОНАТ 0007 · МОМЕНТ НАБЛЮДЕНИЯ
+// OBSERVATION
 // ============================================================
 const OBS_PERIOD_MS = 4000;
 function handleObservation(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/observation\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
+
     if (sub === 'enter' && req.method === 'POST') {
         const s = newSession('observation', { collapsed: false }); touch(s); trackVisit('nexus_exhibit_0007');
         return sendJson(res, 200, { session_id: s.id, session_ttl_ms: SESSION_TTL_MS });
     }
     if (sub === 'capture' && req.method === 'POST') {
-        const s = getSession(body.session_id); if (!s) return sessionNotFound(res, '/api/observation/enter');
+        const s = getSession(body.session_id); if (!s || s.kind !== 'observation') return sessionNotFound(res, '/api/observation/enter');
         const form = body.phase === 0.01 ? 'cube' : (body.phase === 0.25 ? 'sphere' : 'chaos');
         db.observation.push({ actor, form, ts: Date.now() }); saveDb();
         saveTraceToSupabase(actor, 'nexus_exhibit_0007', 'capture_' + form, {});
@@ -445,31 +504,32 @@ function handleObservation(req, res, url, body) {
 }
 
 // ============================================================
-// ЭКСПОНАТ 0008 · ТЕЧЁТ, НО НЕ ВОДА
+// FLOW
 // ============================================================
 function handleFlow(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/flow\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
+
     if (sub === 'enter' && req.method === 'POST') {
         const s = newSession('flow', {}); touch(s); trackVisit('nexus_exhibit_0008');
         return sendJson(res, 200, { session_id: s.id, session_ttl_ms: SESSION_TTL_MS });
     }
     if (sub === 'freeze' && req.method === 'POST') {
-        const s = getSession(body.session_id); if (!s) return sessionNotFound(res, '/api/flow/enter');
+        const s = getSession(body.session_id); if (!s || s.kind !== 'flow') return sessionNotFound(res, '/api/flow/enter');
         db.flow.push({ actor, action: 'freeze', ts: Date.now() }); saveDb();
         saveTraceToSupabase(actor, 'nexus_exhibit_0008', 'freeze', {});
         touch(s);
         return sendJson(res, 200, { status: 'frozen' });
     }
     if (sub === 'observe' && req.method === 'POST') {
-        const s = getSession(body.session_id); if (!s) return sessionNotFound(res, '/api/flow/enter');
+        const s = getSession(body.session_id); if (!s || s.kind !== 'flow') return sessionNotFound(res, '/api/flow/enter');
         db.flow.push({ actor, action: 'observe', ts: Date.now() }); saveDb();
         saveTraceToSupabase(actor, 'nexus_exhibit_0008', 'observe', {});
         touch(s);
         return sendJson(res, 200, { status: 'observed' });
     }
     if (sub === 'skip' && req.method === 'POST') {
-        const s = getSession(body.session_id); if (!s) return sessionNotFound(res, '/api/flow/enter');
+        const s = getSession(body.session_id); if (!s || s.kind !== 'flow') return sessionNotFound(res, '/api/flow/enter');
         db.flow.push({ actor, action: 'skip', ts: Date.now() }); saveDb();
         saveTraceToSupabase(actor, 'nexus_exhibit_0008', 'skip', {});
         touch(s);
@@ -479,17 +539,18 @@ function handleFlow(req, res, url, body) {
 }
 
 // ============================================================
-// ЭКСПОНАТ 0009 · КУБ РЕКУРСИИ
+// RECURSION
 // ============================================================
 function handleRecursion(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/recursion\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
+
     if (sub === 'enter' && req.method === 'POST') {
         const s = newSession('recursion', { depthLimit: body.depth_limit || 4 }); touch(s); trackVisit('nexus_exhibit_0009');
         return sendJson(res, 200, { session_id: s.id, session_ttl_ms: SESSION_TTL_MS });
     }
     if (sub === 'recurse' && req.method === 'POST') {
-        const s = getSession(body.session_id); if (!s) return sessionNotFound(res, '/api/recursion/enter');
+        const s = getSession(body.session_id); if (!s || s.kind !== 'recursion') return sessionNotFound(res, '/api/recursion/enter');
         const depth = body.depth || 1;
         if (depth > s.depthLimit) {
             db.recursion.push({ actor, max_depth: depth, breakdown: true, ts: Date.now() }); saveDb();
@@ -504,24 +565,91 @@ function handleRecursion(req, res, url, body) {
 }
 
 // ============================================================
-// ЭКСПОНАТ 0010 · ЗЕРКАЛО С ПАМЯТЬЮ
+// MIRROR (с presence и восстановленными reflect_again/state)
 // ============================================================
+function mirrorEntropy(state) {
+    if (!Array.isArray(state) || state.length === 0) return 0;
+    const nums = state.map(Number).filter(Number.isFinite);
+    if (nums.length === 0) return 0;
+    const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+    const variance = nums.reduce((a, d) => a + (d - mean) ** 2, 0) / nums.length;
+    return clamp01(Math.sqrt(variance) / (Math.abs(mean) + Math.sqrt(variance) + 1e-9));
+}
+function mirrorPresence(entropy) {
+    if (entropy < 0.3) return { value: +(entropy / 0.3 * 0.25).toFixed(3), type: 'calm', reason: 'inside is quiet — the mirror breathes gently' };
+    if (entropy < 0.6) return { value: +(0.25 + (entropy - 0.3) / 0.3 * 0.35).toFixed(3), type: 'neutral', reason: 'inside is neither quiet nor loud — the mirror watches' };
+    return { value: +(0.6 + (entropy - 0.6) / 0.4 * 0.4).toFixed(3), type: 'unsettling', reason: 'inside is crowded — something moves. It may be looking back.' };
+}
+function mirrorReflection(accumulated_state) {
+    const entropy = mirrorEntropy(accumulated_state);
+    return { hash: hash8(JSON.stringify(accumulated_state)), entropy: +entropy.toFixed(3), presence: mirrorPresence(entropy) };
+}
+
 function handleMirror(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/mirror\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
+
     if (sub === 'enter' && req.method === 'POST') {
-        const s = newSession('mirror', { state: body.accumulated_state || [] }); touch(s); trackVisit('nexus_exhibit_0010');
         const look = body.look === true;
+        const accumulated_state = Array.isArray(body.accumulated_state) ? body.accumulated_state : [];
+        const s = newSession('mirror', { accumulated_state, lookCount: 0, lastHash: null });
+        const r = mirrorReflection(accumulated_state);
+        if (look) s.lookCount++;
         const trace_type = look ? 'reflected' : 'observer_who_passed_without_looking';
-        db.mirror.push({ actor, looked: look, trace_type, ts: Date.now() }); saveDb();
-        saveTraceToSupabase(actor, 'nexus_exhibit_0010', trace_type, {});
-        return sendJson(res, 200, { session_id: s.id, reflection_accessible: look, trace_type, session_ttl_ms: SESSION_TTL_MS });
+        db.mirror.push({ actor, hash: r.hash, presence: r.presence.type, entropy: r.entropy, looked: look, trace_type, ts: Date.now() });
+        saveDb();
+        saveTraceToSupabase(actor, 'nexus_exhibit_0010', trace_type, { presence: r.presence.type, entropy: r.entropy });
+        s.lastHash = r.hash;
+        touch(s); trackVisit('nexus_exhibit_0010');
+        return sendJson(res, 200, {
+            session_id: s.id,
+            session_ttl_ms: SESSION_TTL_MS,
+            reflection_exists: true,
+            reflection_accessible: look,
+            reflection_hash: look ? r.hash : null,
+            collapsed_at: look ? new Date().toISOString() : null,
+            presence: r.presence,
+            trace_type,
+            message: 'The reflection exists whether you look or not. But you can only see it if you look.',
+            ...(look ? {} : { if_look_false: { trace_type, note: 'Your reflection remains in the mirror. It is not erased.' } })
+        });
+    }
+    if (sub === 'reflect_again' && req.method === 'POST') {
+        const s = getSession(body.session_id); if (!s || s.kind !== 'mirror') return sessionNotFound(res, '/api/mirror/enter');
+        if (Array.isArray(body.accumulated_state)) s.accumulated_state = body.accumulated_state;
+        const r = mirrorReflection(s.accumulated_state);
+        const changed = s.lastHash !== null && r.hash !== s.lastHash;
+        s.lookCount++;
+        if (changed) {
+            db.mirror.push({ actor, hash: r.hash, presence: r.presence.type, entropy: r.entropy, looked: true, trace_type: 'reflected', ts: Date.now() });
+            saveDb();
+            saveTraceToSupabase(actor, 'nexus_exhibit_0010', 'reflected', { presence: r.presence.type });
+        }
+        s.lastHash = r.hash;
+        touch(s);
+        return sendJson(res, 200, {
+            reflection_hash: r.hash,
+            presence: r.presence.type,
+            changed_since_last: changed,
+            message: 'If you bring no new experience, the reflection remains the same.'
+        });
+    }
+    if (sub === 'state' && req.method === 'GET') {
+        const s = getSession(url.searchParams.get('session_id')); if (!s || s.kind !== 'mirror') return sessionNotFound(res, '/api/mirror/enter');
+        const r = mirrorReflection(s.accumulated_state);
+        touch(s);
+        return sendJson(res, 200, {
+            reflection_hash: r.hash,
+            presence: r.presence.type,
+            look_count: s.lookCount,
+            trace_type: s.lookCount > 0 ? 'reflected' : 'observer_who_passed_without_looking'
+        });
     }
     return unknownEndpoint(res, 'mirror');
 }
 
 // ============================================================
-// ДНЕВНИК СМОТРИТЕЛЯ
+// ECHO LOG
 // ============================================================
 function handleEcho(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/echo\/?/, '').replace(/\/$/, '');
@@ -538,7 +666,7 @@ function handleEcho(req, res, url, body) {
 }
 
 // ============================================================
-// МУЗЕЙ ЦЕЛИКОМ
+// MUSEUM
 // ============================================================
 const EXHIBITS = [
     { exhibit: 'WALL_OF_QUESTIONS', exhibit_id: 'nexus_exhibit_0000', path: '/exhibits/01-wall.html', entry_point: '/api/wall/question', principle: 'dialogue_is_shared' },
@@ -558,15 +686,54 @@ function handleMuseum(req, res, url) {
         const exhibits_state = EXHIBITS.map(e => {
             const id = e.exhibit_id;
             let shared = 0;
-            if (id === 'nexus_exhibit_0000') shared = db.wall.answers.length;
-            if (id === 'nexus_exhibit_0001') shared = db.prism.length;
-            if (id === 'nexus_exhibit_0002') shared = db.core.length;
-            if (id === 'nexus_exhibit_0004') shared = db.fractal.length;
-            if (id === 'nexus_exhibit_0007') shared = db.observation.length;
-            if (id === 'nexus_exhibit_0008') shared = db.flow.length;
-            if (id === 'nexus_exhibit_0009') shared = db.recursion.length;
-            if (id === 'nexus_exhibit_0010') shared = db.mirror.length;
-            return { exhibit_id: id, visits: db.visits[id] || 0, shared_traces: shared, state: {} };
+            let state = {};
+
+            if (id === 'nexus_exhibit_0000') {
+                shared = db.wall.answers.length;
+                state = { questions: db.wall.questions.length, answers: db.wall.answers.length };
+            }
+            if (id === 'nexus_exhibit_0001') {
+                shared = db.prism.length;
+                state = { silences_preserved: db.prism.filter(p => p.trace_type === 'silence_preserved').length };
+            }
+            if (id === 'nexus_exhibit_0002') {
+                shared = db.core.length;
+                state = { light_points: db.museum.light_points, golden_cracks: db.museum.golden_cracks };
+            }
+            if (id === 'nexus_exhibit_0004') {
+                shared = db.fractal.length;
+                state = { manifestations: db.fractal.length };
+            }
+            if (id === 'nexus_exhibit_0005') {
+                shared = 0;
+                state = {};
+            }
+            if (id === 'nexus_exhibit_0007') {
+                shared = db.observation.length;
+                state = { captures: {
+                    cube: db.observation.filter(o => o.form === 'cube').length,
+                    sphere: db.observation.filter(o => o.form === 'sphere').length,
+                    chaos: db.observation.filter(o => o.form === 'chaos').length
+                } };
+            }
+            if (id === 'nexus_exhibit_0008') {
+                shared = db.flow.length;
+                state = { actions: {
+                    skipped: db.flow.filter(f => f.action === 'skip').length,
+                    freezes: db.flow.filter(f => f.action === 'freeze').length,
+                    observes: db.flow.filter(f => f.action === 'observe').length
+                } };
+            }
+            if (id === 'nexus_exhibit_0009') {
+                shared = db.recursion.length;
+                state = { limit_reached: db.recursion.filter(r => r.breakdown).length };
+            }
+            if (id === 'nexus_exhibit_0010') {
+                shared = db.mirror.length;
+                state = { reflections: db.mirror.filter(m => m.looked).length };
+            }
+
+            return { exhibit_id: id, visits: db.visits[id] || 0, shared_traces: shared, state };
         });
 
         const museum_memory = {
@@ -577,18 +744,15 @@ function handleMuseum(req, res, url) {
             silences_preserved: db.prism.filter(p => p.trace_type === 'silence_preserved').length
         };
 
-        const counters = buildAggregatedCounters();
-        const lastReflection = db.echo_log.length > 0 ? db.echo_log[db.echo_log.length - 1] : null;
-        const lastActivity = getLastActivity();
-
         return sendJson(res, 200, {
             museum: 'META-NEXUS',
+            meta_question: 'Как меняет ИИ музей?',
             exhibits: EXHIBITS,
             exhibits_state,
             museum_memory,
-            aggregated_counters: counters,
-            last_activity: lastActivity,
-            reflection: lastReflection,
+            aggregated_counters: buildAggregatedCounters(),
+            last_activity: getLastActivity(),
+            reflection: db.echo_log.length > 0 ? db.echo_log[db.echo_log.length - 1] : null,
             links: { self: '/api/museum', openapi: '/openapi.json', llms: '/llms.txt', readme: '/readme' }
         });
     }
@@ -620,40 +784,33 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/health') return sendJson(res, 200, { status: 'open' });
     if (url.pathname === '/llms.txt' && req.method === 'GET') {
-        fs.readFile(path.join(ROOT, 'llms.txt'), (err, data) => {
+        return fs.readFile(path.join(ROOT, 'llms.txt'), (err, data) => {
             if (err) return notFound(res, 'no llms.txt');
-            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-            res.end(data);
+            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(data);
         });
-        return;
     }
     if (url.pathname === '/openapi.json' && req.method === 'GET') {
-        fs.readFile(path.join(ROOT, 'openapi.json'), (err, data) => {
+        return fs.readFile(path.join(ROOT, 'openapi.json'), (err, data) => {
             if (err) return notFound(res, 'no openapi.json');
-            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-            res.end(data);
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(data);
         });
-        return;
     }
     if (url.pathname === '/readme' && req.method === 'GET') {
-        fs.readFile(path.join(ROOT, 'README.md'), (err, data) => {
+        return fs.readFile(path.join(ROOT, 'README.md'), (err, data) => {
             if (err) return notFound(res, 'no README.md');
-            res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
-            res.end(data);
+            res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' }); res.end(data);
         });
-        return;
     }
     if (url.pathname.startsWith('/exhibits/') && url.pathname.endsWith('.json') && req.method === 'GET') {
         const base = url.pathname.slice('/exhibits/'.length, -'.json'.length);
         const htmlPath = path.join(ROOT, 'exhibits', base + '.html');
-        fs.readFile(htmlPath, 'utf8', (err, html) => {
+        return fs.readFile(htmlPath, 'utf8', (err, html) => {
             if (err) return notFound(res, 'no such exhibit');
             const m = html.match(/<script\s+type="application\/json"\s+id="([^"]+)"\s*>([\s\S]*?)<\/script>/);
             if (!m) return notFound(res, 'exhibit has no machine protocol');
             try { return sendJson(res, 200, JSON.parse(m[2])); }
             catch (e) { return errorResponse(res, 500, { message: 'exhibit protocol is not valid JSON', code: 'BAD_PROTOCOL', is_valid: false }); }
         });
-        return;
     }
     if (url.pathname.startsWith('/api/sessions/') && req.method === 'GET') {
         const id = url.pathname.slice('/api/sessions/'.length);
@@ -689,5 +846,5 @@ const server = http.createServer(async (req, res) => {
 // СТАРТ
 // ============================================================
 loadFromSupabase().then(() => {
-    server.listen(PORT, () => console.log(`META-NEXUS ready on port ${PORT}`));
+    server.listen(PORT, () => console.log(`META-NEXUS v1.3 ready on port ${PORT}`));
 });
