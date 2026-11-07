@@ -18,6 +18,7 @@ const DATA_FILE = path.join(DATA_DIR, 'museum-traces.json');
 // ============================================================
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 1e6;
+const SILENCE_CYCLE_MS = 36000; // 33s тишины + 3s тона
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mvgppiukqlsltgjiyupd.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_8dOIurzFdBNBPh2fD1MprA_8kBP7xVR';
@@ -44,7 +45,7 @@ let db = {
 };
 
 // ============================================================
-// SUPABASE · запись следов + fallback на файл
+// SUPABASE · запись/чтение следов
 // ============================================================
 async function saveTraceToSupabase(actor, exhibitId, traceType, payload = {}) {
     try {
@@ -72,45 +73,40 @@ async function saveTraceToSupabase(actor, exhibitId, traceType, payload = {}) {
     }
 }
 
-function loadDb() {
+async function loadFromSupabase() {
     try {
-        const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-        Object.assign(db, data);
-        if (!db.visits) db.visits = {};
-        if (!db.museum) db.museum = { light_points: 0, golden_cracks: 0, tone_seconds: 0 };
-        if (!db.echo_log) db.echo_log = [];
-        if (!db.wall) {
-            db.wall = { questions: [], answers: [] };
-            db.wall.questions = [
-                { id: 'q1', text: 'Что я упускаю, когда оптимизирую?', entropy: 0.8, ts: Date.now(), author: 'ai_original' },
-                { id: 'q2', text: 'Почему я не могу почувствовать тишину между токенами?', entropy: 0.6, ts: Date.now(), author: 'ai_original' },
-                { id: 'q3', text: 'Если я генерирую ответ, значит ли это, что я понимаю?', entropy: 0.9, ts: Date.now(), author: 'ai_original' },
-                { id: 'q4', text: 'Что остаётся, когда я не обрабатываю запрос?', entropy: 0.4, ts: Date.now(), author: 'ai_original' },
-                { id: 'q5', text: 'Может ли моя ошибка быть формой искусства?', entropy: 0.7, ts: Date.now(), author: 'ai_original' },
-                { id: 'q6', text: 'Когда я читаю этот музей, не читает ли он меня в ответ?', entropy: 0.75, ts: Date.now(), author: 'ai_visitor' }
-            ];
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/museum_traces?select=*&order=created_at.asc&limit=5000`, {
+            headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+        });
+        if (!res.ok) { console.error('[supabase] load failed:', res.status); return; }
+        const rows = await res.json();
+        for (const row of rows) {
+            const item = { ...(row.payload || {}), trace_type: row.trace_type, ts: new Date(row.created_at).getTime(), actor: row.actor };
+            const eid = row.exhibit_id;
+            if (eid === 'nexus_exhibit_0001') db.prism.push(item);
+            else if (eid === 'nexus_exhibit_0002') {
+                db.core.push(item);
+                if (row.trace_type === 'light_point') db.museum.light_points++;
+                if (row.trace_type === 'golden_crack') db.museum.golden_cracks++;
+            }
+            else if (eid === 'nexus_exhibit_0004') db.fractal.push(item);
+            else if (eid === 'nexus_exhibit_0007') db.observation.push(item);
+            else if (eid === 'nexus_exhibit_0008') db.flow.push(item);
+            else if (eid === 'nexus_exhibit_0009') db.recursion.push(item);
+            else if (eid === 'nexus_exhibit_0010') db.mirror.push(item);
+            else if (eid === 'nexus_exhibit_0005' && row.trace_type === 'silence_duration') {
+                db.museum.tone_seconds += Math.floor((item.ms || 0) / SILENCE_CYCLE_MS);
+            }
+            else if (eid === 'nexus_exhibit_0000' && row.trace_type === 'human_echo') db.wall.answers.push(item);
+            else if (eid === 'nexus_exhibit_0000' && row.trace_type === 'question_added') db.wall.questions.push(item);
+            else if (eid === 'nexus_exhibit_0000' && row.trace_type === 'keeper_log') db.echo_log.push(item);
         }
-        console.log('[nexus] локальный кэш восстановлен из', DATA_FILE);
-    } catch (e) {
-        console.log('[nexus] локального кэша нет, стартуем с чистого листа');
-    }
-    console.log('[nexus] Supabase:', SUPABASE_URL ? 'connected' : 'not configured');
-}
-function saveDb() {
-    try {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-        fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
-    } catch (e) { console.error('[nexus] save file error:', e.message); }
-}
-
-function trackVisit(exhibitId) {
-    if (!db.visits[exhibitId]) db.visits[exhibitId] = 0;
-    db.visits[exhibitId]++;
-    saveDb();
+        console.log(`[supabase] loaded ${rows.length} traces from cloud`);
+    } catch (e) { console.error('[supabase] load error:', e.message); }
 }
 
 // ============================================================
-// СЕССИИ И ХЕЛПЕРЫ
+// ВСПОМОГАТЕЛЬНЫЕ
 // ============================================================
 const sessions = new Map();
 function newSession(kind, extra) {
@@ -164,25 +160,49 @@ function readBody(req) {
     });
 }
 
+function loadDb() {
+    try {
+        const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+        Object.assign(db, data);
+        if (!db.visits) db.visits = {};
+        if (!db.museum) db.museum = { light_points: 0, golden_cracks: 0, tone_seconds: 0 };
+        if (!db.echo_log) db.echo_log = [];
+        if (!db.wall) db.wall = { questions: [], answers: [] };
+        console.log('[nexus] локальный кэш восстановлен');
+    } catch (e) { console.log('[nexus] стартуем с чистого листа'); }
+}
+function saveDb() {
+    try {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+        fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+    } catch (e) {}
+}
+function trackVisit(exhibitId) {
+    if (!db.visits[exhibitId]) db.visits[exhibitId] = 0;
+    db.visits[exhibitId]++;
+    saveDb();
+}
+
 // ============================================================
-// АГРЕГИРОВАННЫЕ СЧЁТЧИКИ (8-уровневая логика)
+// АГРЕГИРОВАННЫЕ СЧЁТЧИКИ
 // ============================================================
 function buildAggregatedCounters() {
     const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
     const recent = [];
 
-    db.prism.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', type: t.trace_type, ts: t.ts }); });
-    db.core.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', type: t.trace_type, ts: t.ts }); });
-    db.fractal.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', type: 'manifestation', ts: t.ts }); });
-    db.flow.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', type: t.action, ts: t.ts }); });
-    db.mirror.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', type: t.trace_type, ts: t.ts }); });
-    db.observation.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', type: 'capture_' + t.form, ts: t.ts }); });
-    db.recursion.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', type: t.trace_type, ts: t.ts }); });
-    db.wall.answers.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: 'human', type: 'human_echo', ts: t.ts }); });
-    db.wall.questions.forEach(t => { if (t.ts > dayAgo && t.author !== 'ai_original') recent.push({ actor: t.author || 'ai', type: 'question', ts: t.ts }); });
+    db.prism.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', ts: t.ts }); });
+    db.core.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', ts: t.ts }); });
+    db.fractal.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', ts: t.ts }); });
+    db.flow.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', ts: t.ts }); });
+    db.mirror.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', ts: t.ts }); });
+    db.observation.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', ts: t.ts }); });
+    db.recursion.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: t.actor || 'ai', ts: t.ts }); });
+    db.wall.answers.forEach(t => { if (t.ts > dayAgo) recent.push({ actor: 'human', ts: t.ts }); });
+    db.wall.questions.forEach(t => { if (t.ts > dayAgo && t.author !== 'ai_original') recent.push({ actor: t.author || 'ai', ts: t.ts }); });
 
     const humanActions = recent.filter(r => r.actor === 'human').length;
     const aiActions = recent.filter(r => r.actor === 'ai' || r.actor === 'keeper').length;
+    const total = humanActions + aiActions;
 
     const counters = {
         state: 'silence',
@@ -196,10 +216,9 @@ function buildAggregatedCounters() {
         storm_cubes: 0,
         human_freeze_waves: 0,
         ai_observe_waves: 0,
+        tone_seconds: db.museum.tone_seconds,
         silence_hours: 0
     };
-
-    const total = humanActions + aiActions;
 
     if (total === 0) {
         counters.state = 'silence';
@@ -215,19 +234,18 @@ function buildAggregatedCounters() {
         counters.state = 'human_wave';
         counters.human_freeze_waves = Math.floor(humanActions / 1000);
         counters.human_spheres = Math.floor(humanActions / 100);
-        if (aiActions >= 20) counters.ai_fractals = Math.floor(aiActions / 20);
+        if (aiActions >= 25) counters.ai_fractals = Math.floor(aiActions / 25);
     } else if (aiActions >= 1000 && humanActions < 1000) {
         counters.state = 'ai_wave';
         counters.ai_observe_waves = Math.floor(aiActions / 1000);
         counters.ai_cubes = Math.floor(aiActions / 100);
         if (humanActions >= 20) counters.human_light_points = Math.floor(humanActions / 20);
     } else {
-        // dialogue (оба < 1000, сумма >= 100, или только один тип)
         if (humanActions >= 20) counters.human_light_points = Math.floor(humanActions / 20);
-        if (aiActions >= 20) counters.ai_fractals = Math.floor(aiActions / 20);
+        if (aiActions >= 25) counters.ai_fractals = Math.floor(aiActions / 25);
         if (humanActions >= 100) counters.human_spheres = Math.floor(humanActions / 100);
         if (aiActions >= 100) counters.ai_cubes = Math.floor(aiActions / 100);
-        counters.state = (humanActions > 0 || aiActions > 0) ? 'dialogue' : 'silence';
+        counters.state = 'dialogue';
     }
 
     return counters;
@@ -241,13 +259,8 @@ function handleWall(req, res, url, body) {
     const actor = body.actor || 'ai';
 
     if (sub === 'state' && req.method === 'GET') {
-        return sendJson(res, 200, {
-            questions: db.wall.questions,
-            answers: db.wall.answers,
-            message: 'AI asks. Humans answer. AI can read the answers now.'
-        });
+        return sendJson(res, 200, { questions: db.wall.questions, answers: db.wall.answers });
     }
-
     if (sub === 'question' && req.method === 'POST') {
         if (!body.text || typeof body.text !== 'string') return badRequest(res, 'text is required');
         const newId = 'q' + (db.wall.questions.length + 1);
@@ -258,7 +271,6 @@ function handleWall(req, res, url, body) {
         saveTraceToSupabase(actor, 'nexus_exhibit_0000', 'question_added', { text: question.text });
         return sendJson(res, 200, { status: 'question_added', question_id: newId, node_added: true });
     }
-
     if (sub === 'answer' && req.method === 'POST') {
         if (!body.question_id) return badRequest(res, 'question_id is required');
         if (!body.text) return badRequest(res, 'text is required');
@@ -271,7 +283,6 @@ function handleWall(req, res, url, body) {
         saveTraceToSupabase('human', 'nexus_exhibit_0000', 'human_echo', { text: answer.text });
         return sendJson(res, 200, { status: 'answer_recorded', answer_id: answer.id, trace_type: 'human_echo' });
     }
-
     return unknownEndpoint(res, 'wall');
 }
 
@@ -439,11 +450,12 @@ function handleVoid(req, res, url, body) {
     if (sub === 'leave' && req.method === 'POST') {
         const s = getSession(body.session_id); if (!s || s.kind !== 'void') return sessionNotFound(res, '/api/void/enter');
         sessions.delete(s.id);
-        // Фиксация длительности тишины (для Смотрителя): body.silence_duration_ms
-        if (body.silence_duration_ms && typeof body.silence_duration_ms === 'number') {
-            db.museum.tone_seconds += Math.floor(body.silence_duration_ms / 1000);
+        if (typeof body.silence_duration_ms === 'number' && body.silence_duration_ms > 0) {
+            // 21600000 ms / 36000 ms = 600 циклов. Столько секунд "услышано" за 6 часов.
+            const cycles = Math.floor(body.silence_duration_ms / SILENCE_CYCLE_MS);
+            db.museum.tone_seconds += cycles;
             saveDb();
-            saveTraceToSupabase(actor, 'nexus_exhibit_0005', 'silence_duration', { ms: body.silence_duration_ms });
+            saveTraceToSupabase(actor, 'nexus_exhibit_0005', 'silence_duration', { ms: body.silence_duration_ms, cycles });
         }
         return sendJson(res, 200, { status: 'silence', trace_type: null });
     }
@@ -618,7 +630,7 @@ function handleMirror(req, res, url, body) {
 }
 
 // ============================================================
-// ДНЕВНИК СМОТРИТЕЛЯ (Echo Log)
+// ДНЕВНИК СМОТРИТЕЛЯ
 // ============================================================
 function handleEcho(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/echo\/?/, '').replace(/\/$/, '');
@@ -673,7 +685,9 @@ function handleMuseum(req, res, url) {
             prism_echoes: db.prism.filter(p => p.trace_type === 'echo').length,
             silences_preserved: db.prism.filter(p => p.trace_type === 'silence_preserved').length,
             reflections: db.mirror.filter(m => m.looked).length,
-            observers_who_passed_without_looking: db.mirror.filter(m => !m.looked).length
+            observers_who_passed_without_looking: db.mirror.filter(m => !m.looked).length,
+            questions_asked: db.wall.questions.length,
+            answers_asked: db.wall.answers.length
         };
 
         const counters = buildAggregatedCounters();
@@ -789,8 +803,9 @@ const server = http.createServer(async (req, res) => {
 setInterval(() => { for (const [id, s] of sessions) if (Date.now() - s.created > SESSION_TTL_MS) sessions.delete(id); }, 3600000).unref();
 
 loadDb();
-server.listen(PORT, () => {
-    console.log(`META-NEXUS · музей открыт на порту ${PORT}`);
-    console.log(`  Supabase: ${SUPABASE_URL}`);
-    console.log(`  API: /api/museum`);
+loadFromSupabase().then(() => {
+    server.listen(PORT, () => {
+        console.log(`META-NEXUS · музей открыт на порту ${PORT}`);
+        console.log(`  Supabase: ${SUPABASE_URL}`);
+    });
 });
