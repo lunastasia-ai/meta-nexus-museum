@@ -181,7 +181,7 @@ function getLastActivity() {
         ...db.observation.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: 'capture_' + t.form })),
         ...db.recursion.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: t.trace_type })),
         ...db.wall.answers.map(t => ({ ts: t.ts, actor: 'human', type: 'human_echo' })),
-        ...db.wall.questions.map(t => ({ ts: t.ts, actor: t.author || 'ai', type: 'question_added' })),
+        ...db.wall.questions.filter(t => t.author !== 'ai_original').map(t => ({ ts: t.ts, actor: t.author || 'ai', type: 'question_added' })),
         ...db.echo_log.map(t => ({ ts: t.ts, actor: 'keeper', type: 'keeper_log' }))
     ].filter(x => x.ts > 0);
 
@@ -691,3 +691,4 @@ const server = http.createServer(async (req, res) => {
 loadFromSupabase().then(() => {
     server.listen(PORT, () => console.log(`META-NEXUS ready on port ${PORT}`));
 });
+
