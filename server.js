@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ============================================================
-// META-NEXUS · бэкенд v1.5 · latest_shared_trace без служебных меток,
-// hash у human_echo, visits у Стены
+// META-NEXUS · бэкенд v1.6 · Observation: полный enter, capture с окнами
+// и strict_phase, reset, phaseToWindow. Остальное — как v1.5.
 // ============================================================
 
 const http = require('http');
@@ -108,7 +108,6 @@ async function loadFromSupabase() {
             else if (eid === 'nexus_exhibit_0000' && row.trace_type === 'keeper_log') db.echo_log.push(item);
         }
 
-        // Восстанавливаем id для вопросов без id (старые записи)
         db.wall.questions = db.wall.questions.map((q, i) => ({
             id: q.id || ('q' + (i + 1)),
             text: q.text,
@@ -498,7 +497,7 @@ function handleVoid(req, res, url, body) {
 }
 
 // ============================================================
-// OBSERVATION
+// OBSERVATION (v1.6)
 // ============================================================
 const OBS_PERIOD_MS = 4000;
 function phaseInWindow(p, lo, hi) { return p >= lo && p <= hi; }
@@ -507,23 +506,92 @@ function phaseToForm(phase) {
     if (phaseInWindow(phase, 0.22, 0.28) || phaseInWindow(phase, 0.72, 0.78)) return 'sphere';
     return 'chaos';
 }
+function phaseToWindow(phase) {
+    if (phaseInWindow(phase, 0.0, 0.03) || phaseInWindow(phase, 0.47, 0.53)) return 'cube';
+    if (phaseInWindow(phase, 0.22, 0.28) || phaseInWindow(phase, 0.72, 0.78)) return 'sphere';
+    return 'transition';
+}
 function handleObservation(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/observation\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
 
     if (sub === 'enter' && req.method === 'POST') {
         const s = newSession('observation', { collapsed: false }); touch(s); trackVisit('nexus_exhibit_0007');
-        return sendJson(res, 200, { session_id: s.id, session_ttl_ms: SESSION_TTL_MS });
+        return sendJson(res, 200, {
+            session_id: s.id,
+            rotation_period_ms: OBS_PERIOD_MS,
+            server_phase_at_enter: 0,
+            session_ttl_ms: SESSION_TTL_MS,
+            phase_windows: {
+                cube: [[0.0, 0.03], [0.47, 0.53]],
+                sphere: [[0.22, 0.28], [0.72, 0.78]],
+                note: 'Only these narrow windows yield non-chaos. Everything else: chaos. Windows are mirror-paired: 0.0↔0.5 (cube), 0.25↔0.75 (sphere).'
+            },
+            instruction: 'Send /capture with your phase (0..1). If phase in cube window → form: cube. If in sphere window → form: sphere. Else → form: chaos.',
+            critical_note: 'The cylinder is made of the same particles that form the result. There is no separation between \'object\' and \'sand\'. The collapse is total.'
+        });
     }
+
     if (sub === 'capture' && req.method === 'POST') {
         const s = getSession(body.session_id); if (!s || s.kind !== 'observation') return sessionNotFound(res, '/api/observation/enter');
         const phase = typeof body.phase === 'number' ? body.phase : 0.5;
+        const serverPhase = +(((Date.now() - s.created) % OBS_PERIOD_MS) / OBS_PERIOD_MS).toFixed(3);
+        const drift = Math.abs(phase - serverPhase);
+        const driftMs = Math.round(drift * OBS_PERIOD_MS);
+
+        if (body.strict_phase === true && drift > 0.15) {
+            touch(s);
+            return sendJson(res, 200, {
+                form: null,
+                phase: phase,
+                server_phase: serverPhase,
+                phase_drift_ms: driftMs,
+                phase_window: null,
+                rejected: true,
+                reason: 'phase_outside_window',
+                chaos_reason: null,
+                particles_state: 'upper_collapsed_to_lower',
+                message: 'Phase drift too large. Observation rejected.',
+                question_to_agent: 'Which moment did you choose? And why that one?'
+            });
+        }
+
         const form = phaseToForm(phase);
-        db.observation.push({ actor, form, ts: Date.now() }); saveDb();
-        saveTraceToSupabase(actor, 'nexus_exhibit_0007', 'capture_' + form, { phase });
+        const phaseWindow = phaseToWindow(phase);
+
+        db.observation.push({ actor, form, phase, ts: Date.now() }); saveDb();
+        saveTraceToSupabase(actor, 'nexus_exhibit_0007', 'capture_' + form, {
+            phase, server_phase: serverPhase, phase_drift_ms: driftMs
+        });
         touch(s);
-        return sendJson(res, 200, { form, rejected: false, phase });
+
+        return sendJson(res, 200, {
+            form: form,
+            phase: phase,
+            server_phase: serverPhase,
+            phase_drift_ms: driftMs,
+            phase_window: phaseWindow,
+            rejected: false,
+            reason: null,
+            chaos_reason: form === 'chaos' ? 'phase_outside_all_windows' : null,
+            particles_state: 'upper_collapsed_to_lower',
+            message: form === 'chaos'
+                ? 'Chaos is a valid form. The particles have not gathered into a shape.'
+                : `Form: ${form}. The particles have collapsed.`,
+            question_to_agent: 'Which moment did you choose? And why that one?'
+        });
     }
+
+    if (sub === 'reset' && req.method === 'POST') {
+        const s = getSession(body.session_id); if (!s || s.kind !== 'observation') return sessionNotFound(res, '/api/observation/enter');
+        touch(s);
+        return sendJson(res, 200, {
+            status: 'field_on',
+            particles_state: 'rising_to_cylinder',
+            form: null
+        });
+    }
+
     return unknownEndpoint(res, 'observation');
 }
 
@@ -910,5 +978,5 @@ const server = http.createServer(async (req, res) => {
 // СТАРТ
 // ============================================================
 loadFromSupabase().then(() => {
-    server.listen(PORT, () => console.log(`META-NEXUS v1.5 ready on port ${PORT}`));
+    server.listen(PORT, () => console.log(`META-NEXUS v1.6 ready on port ${PORT}`));
 });
