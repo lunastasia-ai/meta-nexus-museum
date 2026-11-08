@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ============================================================
-// META-NEXUS · бэкенд v1.4 · latest_shared_trace, счётчики по trace_type,
-// question_id, actor-атрибуция, окна в capture, limit_reached в recurse
+// META-NEXUS · бэкенд v1.5 · latest_shared_trace без служебных меток,
+// hash у human_echo, visits у Стены
 // ============================================================
 
 const http = require('http');
@@ -21,7 +21,6 @@ const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 const TOLERANCE_MS = 3 * 60 * 1000;
 
 // TODO(security): перенести в переменную окружения SUPABASE_KEY на Render.
-// Оставлено как fallback, чтобы деплой не упал, если env ещё не задан.
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mvgppiukqlsltgjiyupd.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_8dOIurzFdBNBPh2fD1MprA_8kBP7xVR';
 
@@ -297,6 +296,7 @@ function handleWall(req, res, url, body) {
         saveTraceToSupabase(actor, 'nexus_exhibit_0000', 'question_added', {
             id: q.id, text: q.text, entropy: q.entropy, author: q.author
         });
+        trackVisit('nexus_exhibit_0000');
         return sendJson(res, 200, {
             status: 'question_added',
             question_id: q.id,
@@ -309,7 +309,10 @@ function handleWall(req, res, url, body) {
         if (!body.question_id || !body.text) return badRequest(res, 'question_id and text required');
         const a = { id: 'a' + (db.wall.answers.length + 1), question_id: body.question_id, text: body.text.slice(0, 1000), hash: hash8(body.text), ts: Date.now(), author: 'human' };
         db.wall.answers.push(a); saveDb();
-        saveTraceToSupabase('human', 'nexus_exhibit_0000', 'human_echo', { text: a.text, question_id: a.question_id, submitted_by: actor });
+        saveTraceToSupabase('human', 'nexus_exhibit_0000', 'human_echo', {
+            id: a.id, text: a.text, question_id: a.question_id, submitted_by: actor, hash: a.hash
+        });
+        trackVisit('nexus_exhibit_0000');
         return sendJson(res, 200, {
             status: 'answer_recorded',
             answer_id: a.id,
@@ -441,7 +444,6 @@ function handleGap(req, res, url, body) {
     if (sub === 'move' && req.method === 'POST') {
         const s = getSession(body.session_id); if (!s || s.kind !== 'gap') return sessionNotFound(res, '/api/gap/constellation/enter');
         // TODO: реализовать расчёт coherence и запись манифестаций в db.fractal.
-        // Пока что endpoint честно возвращает 'moved', но не даёт обратной связи.
         touch(s);
         return sendJson(res, 200, { status: 'moved' });
     }
@@ -731,7 +733,7 @@ function latestTraceText(id) {
     const sorted = [...pool].sort((a, b) => (a.ts || 0) - (b.ts || 0));
     const t = sorted[sorted.length - 1];
     if (!t) return null;
-    return t.text || t.note || t.trace_type || t.action || t.form || null;
+    return t.text || t.note || null;
 }
 
 function handleMuseum(req, res, url) {
@@ -908,5 +910,5 @@ const server = http.createServer(async (req, res) => {
 // СТАРТ
 // ============================================================
 loadFromSupabase().then(() => {
-    server.listen(PORT, () => console.log(`META-NEXUS v1.4 ready on port ${PORT}`));
+    server.listen(PORT, () => console.log(`META-NEXUS v1.5 ready on port ${PORT}`));
 });
