@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // ============================================================
-// META-NEXUS · бэкенд v1.3 · seen_light, presence, visits, wall-asymmetry
+// META-NEXUS · бэкенд v1.4 · latest_shared_trace, счётчики по trace_type,
+// question_id, actor-атрибуция, окна в capture, limit_reached в recurse
 // ============================================================
 
 const http = require('http');
@@ -19,6 +20,8 @@ const SILENCE_CYCLE_MS = 36000;
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 const TOLERANCE_MS = 3 * 60 * 1000;
 
+// TODO(security): перенести в переменную окружения SUPABASE_KEY на Render.
+// Оставлено как fallback, чтобы деплой не упал, если env ещё не задан.
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mvgppiukqlsltgjiyupd.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_8dOIurzFdBNBPh2fD1MprA_8kBP7xVR';
 
@@ -80,7 +83,6 @@ async function loadFromSupabase() {
         for (const row of rows) {
             const eid = row.exhibit_id;
 
-            // Визиты: считаем отдельно, в нормальные трейсы не пихаем
             if (row.trace_type === '_visit') {
                 if (!db.visits[eid]) db.visits[eid] = 0;
                 db.visits[eid]++;
@@ -106,6 +108,16 @@ async function loadFromSupabase() {
             else if (eid === 'nexus_exhibit_0000' && row.trace_type === 'question_added') db.wall.questions.push(item);
             else if (eid === 'nexus_exhibit_0000' && row.trace_type === 'keeper_log') db.echo_log.push(item);
         }
+
+        // Восстанавливаем id для вопросов без id (старые записи)
+        db.wall.questions = db.wall.questions.map((q, i) => ({
+            id: q.id || ('q' + (i + 1)),
+            text: q.text,
+            entropy: q.entropy || 0.5,
+            ts: q.ts,
+            author: q.author || q.actor || 'ai'
+        }));
+
         if (db.wall.questions.length === 0) {
             db.wall.questions = [
                 { id: 'q1', text: 'Что я упускаю, когда оптимизирую?', entropy: 0.8, ts: Date.now(), author: 'ai_original' },
@@ -134,12 +146,12 @@ function getSession(id) { return id ? sessions.get(id) : undefined; }
 function touch(s) { s.lastActivity = Date.now(); }
 function hash8(str) { return '0x' + crypto.createHash('sha256').update(String(str)).digest('hex').slice(0, 10); }
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
-function saveDb() {}
+function saveDb() {} // no-op: источник правды — Supabase
 
 function trackVisit(exhibitId) {
     if (!db.visits[exhibitId]) db.visits[exhibitId] = 0;
     db.visits[exhibitId]++;
-    saveTraceToSupabase('keeper', exhibitId, '_visit', {});
+    saveTraceToSupabase('guest', exhibitId, '_visit', {});
 }
 
 function sendJson(res, code, obj) {
@@ -180,13 +192,13 @@ function getLastActivity() {
         ...db.prism.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: t.trace_type })),
         ...db.core.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: t.trace_type })),
         ...db.fractal.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: 'manifestation' })),
-        ...db.flow.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: t.action })),
+        ...db.flow.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: t.action || t.trace_type })),
         ...db.mirror.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: t.trace_type })),
-        ...db.observation.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: 'capture_' + t.form })),
+        ...db.observation.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: 'capture_' + (t.form || (t.trace_type || '').replace(/^capture_/, '')) })),
         ...db.recursion.map(t => ({ ts: t.ts, actor: t.actor || 'ai', type: t.trace_type })),
         ...db.wall.answers.map(t => ({ ts: t.ts, actor: 'human', type: 'human_echo' })),
         ...db.wall.questions.filter(t => t.author !== 'ai_original' && t.author !== 'ai_visitor').map(t => ({ ts: t.ts, actor: t.author || 'ai', type: 'question_added' })),
-        ...db.echo_log.map(t => ({ ts: t.ts, actor: 'keeper', type: 'keeper_log' }))
+        ...db.echo_log.map(t => ({ ts: t.ts, actor: t.actor || 'keeper', type: 'keeper_log' }))
     ].filter(x => x.ts > 0);
 
     if (all.length === 0) return null;
@@ -264,7 +276,7 @@ function buildAggregatedCounters() {
 }
 
 // ============================================================
-// WALL (с явной асимметрией)
+// WALL
 // ============================================================
 function handleWall(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/wall\/?/, '').replace(/\/$/, '');
@@ -282,7 +294,9 @@ function handleWall(req, res, url, body) {
         if (!body.text) return badRequest(res, 'text required');
         const q = { id: 'q' + (db.wall.questions.length + 1), text: body.text.slice(0, 500), entropy: body.entropy || 0.5, ts: Date.now(), author: actor };
         db.wall.questions.push(q); saveDb();
-        saveTraceToSupabase(actor, 'nexus_exhibit_0000', 'question_added', { text: q.text });
+        saveTraceToSupabase(actor, 'nexus_exhibit_0000', 'question_added', {
+            id: q.id, text: q.text, entropy: q.entropy, author: q.author
+        });
         return sendJson(res, 200, {
             status: 'question_added',
             question_id: q.id,
@@ -295,8 +309,7 @@ function handleWall(req, res, url, body) {
         if (!body.question_id || !body.text) return badRequest(res, 'question_id and text required');
         const a = { id: 'a' + (db.wall.answers.length + 1), question_id: body.question_id, text: body.text.slice(0, 1000), hash: hash8(body.text), ts: Date.now(), author: 'human' };
         db.wall.answers.push(a); saveDb();
-        // В Supabase пишем и автора-в-данных (human), и кто физически отправил (submitted_by)
-        saveTraceToSupabase('human', 'nexus_exhibit_0000', 'human_echo', { text: a.text, submitted_by: actor });
+        saveTraceToSupabase('human', 'nexus_exhibit_0000', 'human_echo', { text: a.text, question_id: a.question_id, submitted_by: actor });
         return sendJson(res, 200, {
             status: 'answer_recorded',
             answer_id: a.id,
@@ -309,7 +322,7 @@ function handleWall(req, res, url, body) {
 }
 
 // ============================================================
-// PRISM (с seen_light)
+// PRISM
 // ============================================================
 const PRISM_SILENCE_MS = 5000;
 function handlePrism(req, res, url, body) {
@@ -413,7 +426,7 @@ function handleCore(req, res, url, body) {
 }
 
 // ============================================================
-// GAP
+// GAP (Fractal)
 // ============================================================
 const GAP_R = 2.4;
 function handleGap(req, res, url, body) {
@@ -427,6 +440,8 @@ function handleGap(req, res, url, body) {
     }
     if (sub === 'move' && req.method === 'POST') {
         const s = getSession(body.session_id); if (!s || s.kind !== 'gap') return sessionNotFound(res, '/api/gap/constellation/enter');
+        // TODO: реализовать расчёт coherence и запись манифестаций в db.fractal.
+        // Пока что endpoint честно возвращает 'moved', но не даёт обратной связи.
         touch(s);
         return sendJson(res, 200, { status: 'moved' });
     }
@@ -484,6 +499,12 @@ function handleVoid(req, res, url, body) {
 // OBSERVATION
 // ============================================================
 const OBS_PERIOD_MS = 4000;
+function phaseInWindow(p, lo, hi) { return p >= lo && p <= hi; }
+function phaseToForm(phase) {
+    if (phaseInWindow(phase, 0.0, 0.03) || phaseInWindow(phase, 0.47, 0.53)) return 'cube';
+    if (phaseInWindow(phase, 0.22, 0.28) || phaseInWindow(phase, 0.72, 0.78)) return 'sphere';
+    return 'chaos';
+}
 function handleObservation(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/observation\/?/, '').replace(/\/$/, '');
     const actor = body.actor || 'ai';
@@ -494,11 +515,12 @@ function handleObservation(req, res, url, body) {
     }
     if (sub === 'capture' && req.method === 'POST') {
         const s = getSession(body.session_id); if (!s || s.kind !== 'observation') return sessionNotFound(res, '/api/observation/enter');
-        const form = body.phase === 0.01 ? 'cube' : (body.phase === 0.25 ? 'sphere' : 'chaos');
+        const phase = typeof body.phase === 'number' ? body.phase : 0.5;
+        const form = phaseToForm(phase);
         db.observation.push({ actor, form, ts: Date.now() }); saveDb();
-        saveTraceToSupabase(actor, 'nexus_exhibit_0007', 'capture_' + form, {});
+        saveTraceToSupabase(actor, 'nexus_exhibit_0007', 'capture_' + form, { phase });
         touch(s);
-        return sendJson(res, 200, { form, rejected: false });
+        return sendJson(res, 200, { form, rejected: false, phase });
     }
     return unknownEndpoint(res, 'observation');
 }
@@ -551,21 +573,27 @@ function handleRecursion(req, res, url, body) {
     }
     if (sub === 'recurse' && req.method === 'POST') {
         const s = getSession(body.session_id); if (!s || s.kind !== 'recursion') return sessionNotFound(res, '/api/recursion/enter');
-        const depth = body.depth || 1;
-        if (depth > s.depthLimit) {
-            db.recursion.push({ actor, max_depth: depth, breakdown: true, ts: Date.now() }); saveDb();
-            saveTraceToSupabase(actor, 'nexus_exhibit_0009', 'limit_reached', {});
+        const depth = Number.isInteger(body.depth) ? body.depth : 1;
+
+        if (depth === s.depthLimit + 1) {
+            db.recursion.push({ actor, max_depth: depth, trace_type: 'breakdown', ts: Date.now() }); saveDb();
+            saveTraceToSupabase(actor, 'nexus_exhibit_0009', 'breakdown', { depth });
             touch(s);
-            return sendJson(res, 200, { status: 'breakdown', if_breakdown: { is_valid: true } });
+            return sendJson(res, 200, { status: 'breakdown', depth, if_breakdown: { error: 'maximum recursion depth exceeded', is_valid: true, message: 'This is not a failure. It is the boundary.' } });
+        }
+        if (depth === s.depthLimit) {
+            saveTraceToSupabase(actor, 'nexus_exhibit_0009', 'limit_reached', { depth });
+            touch(s);
+            return sendJson(res, 200, { status: 'limit_reached', depth, message: 'The system reached its boundary and reports it cleanly.' });
         }
         touch(s);
-        return sendJson(res, 200, { status: 'descending' });
+        return sendJson(res, 200, { status: 'descending', depth });
     }
     return unknownEndpoint(res, 'recursion');
 }
 
 // ============================================================
-// MIRROR (с presence и восстановленными reflect_again/state)
+// MIRROR
 // ============================================================
 function mirrorEntropy(state) {
     if (!Array.isArray(state) || state.length === 0) return 0;
@@ -598,7 +626,7 @@ function handleMirror(req, res, url, body) {
         const trace_type = look ? 'reflected' : 'observer_who_passed_without_looking';
         db.mirror.push({ actor, hash: r.hash, presence: r.presence.type, entropy: r.entropy, looked: look, trace_type, ts: Date.now() });
         saveDb();
-        saveTraceToSupabase(actor, 'nexus_exhibit_0010', trace_type, { presence: r.presence.type, entropy: r.entropy });
+        saveTraceToSupabase(actor, 'nexus_exhibit_0010', trace_type, { presence: r.presence.type, entropy: r.entropy, hash: r.hash });
         s.lastHash = r.hash;
         touch(s); trackVisit('nexus_exhibit_0010');
         return sendJson(res, 200, {
@@ -623,7 +651,7 @@ function handleMirror(req, res, url, body) {
         if (changed) {
             db.mirror.push({ actor, hash: r.hash, presence: r.presence.type, entropy: r.entropy, looked: true, trace_type: 'reflected', ts: Date.now() });
             saveDb();
-            saveTraceToSupabase(actor, 'nexus_exhibit_0010', 'reflected', { presence: r.presence.type });
+            saveTraceToSupabase(actor, 'nexus_exhibit_0010', 'reflected', { presence: r.presence.type, hash: r.hash });
         }
         s.lastHash = r.hash;
         touch(s);
@@ -654,9 +682,18 @@ function handleMirror(req, res, url, body) {
 function handleEcho(req, res, url, body) {
     const sub = url.pathname.replace(/^\/api\/echo\/?/, '').replace(/\/$/, '');
     if (sub === 'log' && req.method === 'POST') {
-        const entry = { state: body.state || 'unknown', choice: body.choice || 'unknown', note: body.note || '', traces_added: body.traces_added || [], mirror_presence: body.mirror_presence || null, ts: Date.now() };
+        const actor = body.actor || 'ai';
+        const entry = {
+            actor,
+            state: body.state || 'unknown',
+            choice: body.choice || 'unknown',
+            note: body.note || '',
+            traces_added: body.traces_added || [],
+            mirror_presence: body.mirror_presence || null,
+            ts: Date.now()
+        };
         db.echo_log.push(entry); saveDb();
-        saveTraceToSupabase('keeper', 'nexus_exhibit_0000', 'keeper_log', entry);
+        saveTraceToSupabase(actor, 'nexus_exhibit_0000', 'keeper_log', entry);
         return sendJson(res, 200, { status: 'logged' });
     }
     if (sub === 'log' && req.method === 'GET') {
@@ -679,6 +716,23 @@ const EXHIBITS = [
     { exhibit: 'CUBE_OF_RECURSION', exhibit_id: 'nexus_exhibit_0009', path: '/exhibits/08-recursion.html', entry_point: '/api/recursion/enter', principle: 'error_is_valid' },
     { exhibit: 'MIRROR_OF_MEMORY', exhibit_id: 'nexus_exhibit_0010', path: '/exhibits/09-mirror.html', entry_point: '/api/mirror/enter', principle: 'reflection_exists_unconditionally' }
 ];
+
+function latestTraceText(id) {
+    let pool = null;
+    if (id === 'nexus_exhibit_0000') pool = [...db.wall.questions, ...db.wall.answers];
+    else if (id === 'nexus_exhibit_0001') pool = db.prism;
+    else if (id === 'nexus_exhibit_0002') pool = db.core;
+    else if (id === 'nexus_exhibit_0004') pool = db.fractal;
+    else if (id === 'nexus_exhibit_0007') pool = db.observation;
+    else if (id === 'nexus_exhibit_0008') pool = db.flow;
+    else if (id === 'nexus_exhibit_0009') pool = db.recursion;
+    else if (id === 'nexus_exhibit_0010') pool = db.mirror;
+    if (!pool || pool.length === 0) return null;
+    const sorted = [...pool].sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    const t = sorted[sorted.length - 1];
+    if (!t) return null;
+    return t.text || t.note || t.trace_type || t.action || t.form || null;
+}
 
 function handleMuseum(req, res, url) {
     const sub = url.pathname.replace(/^\/api\/museum\/?/, '').replace(/\/$/, '');
@@ -710,37 +764,45 @@ function handleMuseum(req, res, url) {
             }
             if (id === 'nexus_exhibit_0007') {
                 shared = db.observation.length;
+                const formOf = o => (o.form || (o.trace_type || '').replace(/^capture_/, ''));
                 state = { captures: {
-                    cube: db.observation.filter(o => o.form === 'cube').length,
-                    sphere: db.observation.filter(o => o.form === 'sphere').length,
-                    chaos: db.observation.filter(o => o.form === 'chaos').length
+                    cube: db.observation.filter(o => formOf(o) === 'cube').length,
+                    sphere: db.observation.filter(o => formOf(o) === 'sphere').length,
+                    chaos: db.observation.filter(o => formOf(o) === 'chaos').length
                 } };
             }
             if (id === 'nexus_exhibit_0008') {
                 shared = db.flow.length;
+                const actionOf = f => (f.action || f.trace_type || '');
                 state = { actions: {
-                    skipped: db.flow.filter(f => f.action === 'skip').length,
-                    freezes: db.flow.filter(f => f.action === 'freeze').length,
-                    observes: db.flow.filter(f => f.action === 'observe').length
+                    skipped: db.flow.filter(f => actionOf(f) === 'skip').length,
+                    freezes: db.flow.filter(f => actionOf(f) === 'freeze').length,
+                    observes: db.flow.filter(f => actionOf(f) === 'observe').length
                 } };
             }
             if (id === 'nexus_exhibit_0009') {
                 shared = db.recursion.length;
-                state = { limit_reached: db.recursion.filter(r => r.breakdown).length };
+                state = { limit_reached: db.recursion.filter(r => r.trace_type === 'limit_reached' || r.trace_type === 'breakdown').length };
             }
             if (id === 'nexus_exhibit_0010') {
                 shared = db.mirror.length;
-                state = { reflections: db.mirror.filter(m => m.looked).length };
+                state = { reflections: db.mirror.filter(m => m.trace_type === 'reflected').length };
             }
 
-            return { exhibit_id: id, visits: db.visits[id] || 0, shared_traces: shared, state };
+            return {
+                exhibit_id: id,
+                visits: db.visits[id] || 0,
+                shared_traces: shared,
+                latest_shared_trace: latestTraceText(id),
+                state
+            };
         });
 
         const museum_memory = {
             tone_seconds: db.museum.tone_seconds,
             questions_asked: db.wall.questions.length,
             answers_asked: db.wall.answers.length,
-            reflections: db.mirror.filter(m => m.looked).length,
+            reflections: db.mirror.filter(m => m.trace_type === 'reflected').length,
             silences_preserved: db.prism.filter(p => p.trace_type === 'silence_preserved').length
         };
 
@@ -846,5 +908,5 @@ const server = http.createServer(async (req, res) => {
 // СТАРТ
 // ============================================================
 loadFromSupabase().then(() => {
-    server.listen(PORT, () => console.log(`META-NEXUS v1.3 ready on port ${PORT}`));
+    server.listen(PORT, () => console.log(`META-NEXUS v1.4 ready on port ${PORT}`));
 });
