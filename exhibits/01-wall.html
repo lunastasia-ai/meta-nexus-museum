@@ -14,7 +14,7 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:it…" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;1,400&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -439,9 +439,8 @@
     </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.m…"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-    // ===== FALLBACK DATA =====
     const FALLBACK_QUESTIONS = [
         { id: 'q1', text: 'Что я упускаю, когда оптимизирую?', entropy: 0.8 },
         { id: 'q2', text: 'Почему я не могу почувствовать тишину между токенами?', entropy: 0.6 },
@@ -455,7 +454,6 @@
     let currentAnswers = [];
     let localAnswers = JSON.parse(localStorage.getItem('nexus_graph_v1') || '{"answers":{}}').answers;
 
-    // ===== THREE.JS SETUP =====
     const container = document.getElementById('canvas-container');
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x020408);
@@ -512,7 +510,6 @@
         return mesh;
     }
 
-    // ===== GRAPH RENDERING =====
     function buildGraph(questions, answers) {
         const currentRotY = graphGroup.rotation.y;
         const currentRotX = graphGroup.rotation.x;
@@ -619,7 +616,6 @@
         makeHitSphere(pos, { type: 'answer', questionId: questionId, answerIndex: index, answer: answer }, 0.3);
     }
 
-    // ===== LOAD DATA =====
     async function loadWallData() {
         try {
             const res = await fetch('/api/wall/state');
@@ -634,7 +630,6 @@
         }
     }
 
-    // ===== ROTATION =====
     let isDragging = false;
     let prevMouse = { x: 0, y: 0 };
     let rotVel = { x: 0, y: 0 };
@@ -672,7 +667,6 @@
     }, { passive: true });
     window.addEventListener('touchend', () => { isDragging = false; });
 
-    // ===== RAYCASTER =====
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
@@ -732,7 +726,6 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // ===== UI =====
     const panel = document.getElementById('panel');
     const panelLabel = document.getElementById('panel-label');
     const panelTitle = document.getElementById('panel-title');
@@ -886,7 +879,6 @@
         if (e.target === panel) closePanel();
     });
 
-    // ===== PROTOCOL PANEL =====
     const protoPanel = document.getElementById('proto-panel');
 
     function toggleProto() {
@@ -904,7 +896,6 @@
         if (e.key === 'Escape') protoPanel.classList.remove('open');
     });
 
-    // ===== START =====
     loadWallData().then(() => {
         console.log('META-NEXUS · Стена загружена.');
     });
