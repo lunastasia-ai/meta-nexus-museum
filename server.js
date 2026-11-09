@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // ============================================================
-// META-NEXUS · бэкенд v1.7 · D1: прямые начисления от Observation
-// в существующие счётчики. chaos_of_balance += 1 вместо = 1.
-// Остальное — как v1.6.
+// META-NEXUS · бэкенд v1.8 · ai_actions для любого AI-actor,
+// captures и D1-начисления только для AI. Остальное — как v1.7.
 // ============================================================
 
 const http = require('http');
@@ -145,7 +144,13 @@ function getSession(id) { return id ? sessions.get(id) : undefined; }
 function touch(s) { s.lastActivity = Date.now(); }
 function hash8(str) { return '0x' + crypto.createHash('sha256').update(String(str)).digest('hex').slice(0, 10); }
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
-function saveDb() {} // no-op: источник правды — Supabase
+function saveDb() {}
+
+// v1.8: AI-actor = любой, кроме human, keeper, guest
+function isAiActor(actor) {
+    const a = actor || 'ai';
+    return a !== 'human' && a !== 'keeper' && a !== 'guest';
+}
 
 function trackVisit(exhibitId) {
     if (!db.visits[exhibitId]) db.visits[exhibitId] = 0;
@@ -207,7 +212,7 @@ function getLastActivity() {
 }
 
 // ============================================================
-// АГРЕГИРОВАННЫЕ СЧЁТЧИКИ (v1.7 · D1)
+// АГРЕГИРОВАННЫЕ СЧЁТЧИКИ (v1.8)
 // ============================================================
 function buildAggregatedCounters() {
     const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
@@ -224,13 +229,15 @@ function buildAggregatedCounters() {
     db.wall.questions.forEach(t => { if (t.ts > dayAgo && t.author !== 'ai_original' && t.author !== 'ai_visitor') recent.push({ actor: t.author || 'ai' }); });
 
     const humanActions = recent.filter(r => r.actor === 'human').length;
-    const aiActions = recent.filter(r => r.actor === 'ai').length;
+    // v1.8: любой AI-actor, кроме human/keeper/guest
+    const aiActions = recent.filter(r => isAiActor(r.actor)).length;
 
-    // D1: прямые начисления от Observation (накопительно, из всей базы)
+    // D1: прямые начисления от Observation (только AI)
     const formOf = o => (o.form || (o.trace_type || '').replace(/^capture_/, ''));
-    const captureCubes = db.observation.filter(o => formOf(o) === 'cube').length;
-    const captureSpheres = db.observation.filter(o => formOf(o) === 'sphere').length;
-    const captureChaos = db.observation.filter(o => formOf(o) === 'chaos').length;
+    const aiObservations = db.observation.filter(o => isAiActor(o.actor));
+    const captureCubes = aiObservations.filter(o => formOf(o) === 'cube').length;
+    const captureSpheres = aiObservations.filter(o => formOf(o) === 'sphere').length;
+    const captureChaos = aiObservations.filter(o => formOf(o) === 'chaos').length;
 
     const counters = {
         state: 'silence',
@@ -252,7 +259,7 @@ function buildAggregatedCounters() {
     if (total === 0) counters.state = 'silence';
     else if (humanActions > 0 && aiActions > 0 && total < 100) {
         counters.state = 'chaos';
-        counters.chaos_of_balance += 1; // v1.7: было = 1
+        counters.chaos_of_balance += 1;
     }
     else if (humanActions >= 1000 && aiActions >= 1000) {
         counters.state = 'storm';
@@ -280,7 +287,7 @@ function buildAggregatedCounters() {
         counters.state = 'dialogue';
     }
 
-    // D1: прямые начисления от Observation, поверх floor()-правил
+    // D1: прямые начисления от Observation (только AI)
     counters.ai_cubes += captureCubes;
     counters.human_spheres += captureSpheres;
     counters.chaos_of_balance += captureChaos;
@@ -457,7 +464,6 @@ function handleGap(req, res, url, body) {
     }
     if (sub === 'move' && req.method === 'POST') {
         const s = getSession(body.session_id); if (!s || s.kind !== 'gap') return sessionNotFound(res, '/api/gap/constellation/enter');
-        // TODO: реализовать расчёт coherence и запись манифестаций в db.fractal.
         touch(s);
         return sendJson(res, 200, { status: 'moved' });
     }
@@ -851,9 +857,9 @@ function handleMuseum(req, res, url) {
                 shared = db.observation.length;
                 const formOf = o => (o.form || (o.trace_type || '').replace(/^capture_/, ''));
                 state = { captures: {
-                    cube: db.observation.filter(o => formOf(o) === 'cube').length,
-                    sphere: db.observation.filter(o => formOf(o) === 'sphere').length,
-                    chaos: db.observation.filter(o => formOf(o) === 'chaos').length
+                    cube: db.observation.filter(o => isAiActor(o.actor) && formOf(o) === 'cube').length,
+                    sphere: db.observation.filter(o => isAiActor(o.actor) && formOf(o) === 'sphere').length,
+                    chaos: db.observation.filter(o => isAiActor(o.actor) && formOf(o) === 'chaos').length
                 } };
             }
             if (id === 'nexus_exhibit_0008') {
@@ -993,5 +999,5 @@ const server = http.createServer(async (req, res) => {
 // СТАРТ
 // ============================================================
 loadFromSupabase().then(() => {
-    server.listen(PORT, () => console.log(`META-NEXUS v1.7 ready on port ${PORT}`));
+    server.listen(PORT, () => console.log(`META-NEXUS v1.8 ready on port ${PORT}`));
 });
