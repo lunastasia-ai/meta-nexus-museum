@@ -61,7 +61,7 @@
         z-index: 20;
     }
     .ctrl-btn {
-        padding: 10px 18px; /* Увеличенная зона нажатия */
+        padding: 10px 18px;
         background: transparent;
         border: 1px solid rgba(100,140,200,0.15);
         color: rgba(140,160,200,0.5);
@@ -84,7 +84,6 @@
         opacity: 0.3; cursor: not-allowed;
     }
  
-    /* Кнопка протокола: перенесена наверх, z-index повышен */
     .protocol-toggle {
         top: 80px; right: 20px;
         font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
@@ -480,6 +479,10 @@ let animStart = 0;
 let animDuration = 2500;
 let startPositions = [];
 let targetPositions = [];
+
+// v2b: server session
+let sessionId = null;
+let serverPhaseAtEnter = null;
  
 const $phase = document.getElementById('v-phase');
 const $proj = document.getElementById('v-proj');
@@ -505,7 +508,7 @@ function phaseToProjection(phase) {
 // ============================================================
 // CAPTURE
 // ============================================================
-function captureMoment() {
+async function captureMoment() {
     if (state !== 'cylinder') return;
     const phase = getPhase();
     const proj = phaseToProjection(phase);
@@ -545,6 +548,34 @@ function captureMoment() {
     document.getElementById('cut-btn').disabled = true;
  
     console.log('CAPTURE', { phase: phase.toFixed(4), projection: proj, form: form });
+
+    // v2b: send to museum as human action
+    if (sessionId) {
+        try {
+            const res = await fetch('/api/observation/capture', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    phase: phase,
+                    actor: 'human',
+                    strict_phase: false
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                console.log('SERVER CAPTURE', {
+                    form: data.form,
+                    server_phase: data.server_phase,
+                    drift_ms: data.phase_drift_ms
+                });
+            } else {
+                console.warn('META-NEXUS · capture failed:', res.status);
+            }
+        } catch (e) {
+            console.warn('META-NEXUS · capture unavailable:', e.message);
+        }
+    }
 }
  
 // ============================================================
@@ -674,7 +705,30 @@ window.addEventListener('keydown', (e) => {
         else if (state === 'formed') resetField();
     }
 });
- 
+
+// ============================================================
+// SERVER SESSION (v2b)
+// ============================================================
+async function initSession() {
+    try {
+        const res = await fetch('/api/observation/enter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ entity: 'human', session_intent: 'human_visitor' })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            sessionId = data.session_id;
+            serverPhaseAtEnter = data.server_phase_at_enter;
+            console.log('META-NEXUS · Session entered:', sessionId);
+        } else {
+            console.warn('META-NEXUS · enter failed:', res.status);
+        }
+    } catch (e) {
+        console.warn('META-NEXUS · enter unavailable, working locally:', e.message);
+    }
+}
+
 // ============================================================
 // START
 // ============================================================
@@ -683,9 +737,10 @@ for (let i = 0; i < SAND_COUNT; i++) {
     sandPositions[i*3] = p.x; sandPositions[i*3+1] = p.y; sandPositions[i*3+2] = p.z;
 }
 sandGeo.attributes.position.needsUpdate = true;
- 
+
+initSession();
 animate();
- 
+
 console.log('META-NEXUS · Moment of Observation loaded.');
 </script>
 </body>
