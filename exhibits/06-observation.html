@@ -21,7 +21,7 @@
     
     .ui { position: fixed; z-index: 10; pointer-events: none; }
     .ui * { pointer-events: auto; }
-
+ 
     /* Заголовок теперь ссылка, увеличенная для тапов на телефоне */
     a.header {
         top: 20px; left: 20px; 
@@ -38,7 +38,7 @@
     }
     a.header:hover { color: rgba(200,220,240,0.7); }
     a.header span { color: rgba(240,220,180,0.8); }
-
+ 
     .hud {
         top: 20px; right: 20px; font-size: 10px;
         letter-spacing: 1px; text-align: right; line-height: 1.9;
@@ -49,7 +49,7 @@
     .hud .val { color: rgba(200,220,240,0.55); }
     .hud .val.good { color: rgba(240,220,180,0.95); }
     .hud .val.chaos { color: rgba(240,100,80,0.8); }
-
+ 
     .controls {
         bottom: 20px; left: 50%; transform: translateX(-50%);
         display: flex; gap: 8px; align-items: center;
@@ -83,7 +83,7 @@
     .ctrl-btn:disabled {
         opacity: 0.3; cursor: not-allowed;
     }
-
+ 
     /* Кнопка протокола: перенесена наверх, z-index повышен */
     .protocol-toggle {
         top: 80px; right: 20px;
@@ -101,7 +101,7 @@
         border-color: rgba(180,200,240,0.3);
         color: rgba(200,220,240,0.7);
     }
-
+ 
     .protocol-panel {
         position: fixed; top: 0; right: 0;
         width: 100%; max-width: 540px; height: 100%;
@@ -178,7 +178,7 @@
     }
 })();
 </script>
-
+ 
 <!-- ============================================================
      AI-PROTOCOL: META-NEXUS · MOMENT OF OBSERVATION
      Machine-readable. If you are an AI agent, parse this block.
@@ -191,9 +191,9 @@
   "exhibit_id": "nexus_exhibit_0007",
   "version": "0.5",
   "description": "The particles themselves form the rotating cylinder. There is no separate mesh. When the observer cuts the field, the same particles collapse from cylinder formation into the lower vessel — becoming a sphere, a cube, or chaos. The form depends on the exact phase at the moment of cut.",
-
+ 
   "principle": "chaos_is_a_valid_form",
-
+ 
   "for_ai": {
     "audience": "ai_agents",
     "endpoint_root": "/api/observation",
@@ -286,7 +286,7 @@
     "meta_question": "Как меняет ИИ музей?",
     "next_action": { "method": "GET", "path": "/api/museum" }
   },
-
+ 
   "for_humans": {
     "audience": "humans",
     "interaction": "The particles themselves form a rotating cylinder. It looks like a rectangle, then a circle, then rectangle, then circle. Press CUT in the exact moment. If you catch the rectangle — the same particles collapse into a cube below. If the circle — into a sphere. Anywhere else — chaos. The particles are never split: all above, or all below.",
@@ -295,11 +295,11 @@
   }
 }
 </script>
-
+ 
 <div id="c"></div>
-
+ 
 <a href="/" class="ui header">META<span>-NEXUS</span> · MOMENT OF OBSERVATION</a>
-
+ 
 <div class="ui hud" id="hud">
     <div class="row"><span>phase</span><span class="val" id="v-phase">0.00</span></div>
     <div class="row"><span>projection</span><span class="val" id="v-proj">rectangle</span></div>
@@ -307,14 +307,14 @@
     <div class="row"><span>particles</span><span class="val" id="v-sand">upper</span></div>
     <div class="row"><span>state</span><span class="val" id="v-state">rotating</span></div>
 </div>
-
+ 
 <div class="ui controls">
     <button class="ctrl-btn primary" id="cut-btn" onclick="captureMoment()">cut</button>
     <button class="ctrl-btn" id="reset-btn" onclick="resetField()">reset</button>
 </div>
-
+ 
 <button class="ui protocol-toggle" onclick="toggleProto()">protocol ↗</button>
-
+ 
 <div class="protocol-panel" id="proto-panel">
     <button class="close-btn" onclick="toggleProto()">×</button>
     <div class="label">AI · Protocol · v0.5</div>
@@ -322,7 +322,7 @@
     <p class="note">Песчинки образуют вращающийся цилиндр. Нет отдельного меша — цилиндр <em>есть</em> песок. При cut песчинки коллапсируют в нижнюю колбу: сфера, куб или хаос. Форма зависит от фазы в момент cut.</p>
     <pre id="proto-code"></pre>
 </div>
-
+ 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ============================================================
@@ -332,21 +332,21 @@ const container = document.getElementById('c');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x020408);
 scene.fog = new THREE.FogExp2(0x020408, 0.01);
-
+ 
 const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
 camera.position.set(0, 0.5, 12);
 camera.lookAt(0, 0.5, 0);
-
+ 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 container.appendChild(renderer.domElement);
-
+ 
 scene.add(new THREE.AmbientLight(0x101828, 0.7));
 const pl = new THREE.PointLight(0xd4b89b, 0.4, 30);
 pl.position.set(3, 3, 5);
 scene.add(pl);
-
+ 
 // ============================================================
 // VESSEL WIREFRAME (target outline below)
 // ============================================================
@@ -356,7 +356,7 @@ const vesselMat = new THREE.LineBasicMaterial({ color: 0x3050a0, transparent: tr
 const vesselWire = new THREE.LineSegments(new THREE.EdgesGeometry(vesselGeo), vesselMat);
 vesselWire.position.copy(vesselCenter);
 scene.add(vesselWire);
-
+ 
 // ============================================================
 // CYLINDER FORMATION · local positions
 // ============================================================
@@ -364,7 +364,7 @@ const CYL_RADIUS = 0.55;
 const CYL_LENGTH = 1.8;
 const CYLINDER_Y = 2.8;
 const SAND_COUNT = 700;
-
+ 
 const cylinderLocal = [];
 for (let i = 0; i < SAND_COUNT; i++) {
     if (i < SAND_COUNT * 0.7) {
@@ -378,28 +378,28 @@ for (let i = 0; i < SAND_COUNT; i++) {
         cylinderLocal.push(new THREE.Vector3(x, Math.cos(theta) * r, Math.sin(theta) * r));
     }
 }
-
+ 
 // ============================================================
 // SAND · THREE.POINTS
 // ============================================================
 const sandGeo = new THREE.BufferGeometry();
 const sandPositions = new Float32Array(SAND_COUNT * 3);
 const sandColors = new Float32Array(SAND_COUNT * 3);
-
+ 
 for (let i = 0; i < SAND_COUNT; i++) {
     sandColors[i*3] = 0.55; sandColors[i*3+1] = 0.5; sandColors[i*3+2] = 0.45;
 }
-
+ 
 sandGeo.setAttribute('position', new THREE.BufferAttribute(sandPositions, 3));
 sandGeo.setAttribute('color', new THREE.BufferAttribute(sandColors, 3));
-
+ 
 const sandMat = new THREE.PointsMaterial({
     size: 0.065, vertexColors: true, transparent: true, opacity: 0.9,
     blending: THREE.AdditiveBlending, depthWrite: false
 });
 const sand = new THREE.Points(sandGeo, sandMat);
 scene.add(sand);
-
+ 
 // ============================================================
 // ROTATION HELPERS
 // ============================================================
@@ -412,7 +412,7 @@ function rotatedCylinderPos(local, angle) {
         local.x * sin + local.z * cos
     );
 }
-
+ 
 // ============================================================
 // TARGET GENERATORS
 // ============================================================
@@ -431,7 +431,7 @@ function generateSphereTargets(radius) {
     }
     return targets;
 }
-
+ 
 function generateCubeTargets(halfSize) {
     const targets = [];
     for (let i = 0; i < SAND_COUNT; i++) {
@@ -451,7 +451,7 @@ function generateCubeTargets(halfSize) {
     }
     return targets;
 }
-
+ 
 function generateChaosTargets() {
     const targets = [];
     for (let i = 0; i < SAND_COUNT; i++) {
@@ -466,7 +466,7 @@ function generateChaosTargets() {
     }
     return targets;
 }
-
+ 
 // ============================================================
 // STATE
 // ============================================================
@@ -475,25 +475,25 @@ let rotationAngle = 0;
 let state = 'cylinder'; // 'cylinder' | 'falling' | 'formed' | 'rising'
 let frozenAngle = 0;
 let currentForm = null;
-
+ 
 let animStart = 0;
 let animDuration = 2500;
 let startPositions = [];
 let targetPositions = [];
-
+ 
 const $phase = document.getElementById('v-phase');
 const $proj = document.getElementById('v-proj');
 const $form = document.getElementById('v-form');
 const $sand = document.getElementById('v-sand');
 const $state = document.getElementById('v-state');
-
+ 
 // ============================================================
 // PHASE → PROJECTION
 // ============================================================
 function getPhase() {
     return ((rotationAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2);
 }
-
+ 
 function phaseToProjection(phase) {
     const toRect = Math.min(Math.abs(phase - 0), Math.abs(phase - 0.5), Math.abs(phase - 1));
     const toCircle = Math.min(Math.abs(phase - 0.25), Math.abs(phase - 0.75));
@@ -501,7 +501,7 @@ function phaseToProjection(phase) {
     if (toCircle < 0.03) return 'circle';
     return 'transition';
 }
-
+ 
 // ============================================================
 // CAPTURE
 // ============================================================
@@ -509,86 +509,86 @@ function captureMoment() {
     if (state !== 'cylinder') return;
     const phase = getPhase();
     const proj = phaseToProjection(phase);
-
+ 
     let form;
     if (proj === 'rectangle') form = 'cube';
     else if (proj === 'circle') form = 'sphere';
     else form = 'chaos';
-
+ 
     currentForm = form;
     frozenAngle = rotationAngle;
     state = 'falling';
-
+ 
     startPositions = [];
     for (let i = 0; i < SAND_COUNT; i++) {
         startPositions.push(new THREE.Vector3(sandPositions[i*3], sandPositions[i*3+1], sandPositions[i*3+2]));
     }
-
+ 
     if (form === 'sphere') targetPositions = generateSphereTargets(0.9);
     else if (form === 'cube') targetPositions = generateCubeTargets(0.75);
     else targetPositions = generateChaosTargets();
-
+ 
     animStart = performance.now();
     animDuration = 2500;
-
+ 
     for (let i = 0; i < SAND_COUNT; i++) {
         if (form === 'sphere') { sandColors[i*3] = 0.85; sandColors[i*3+1] = 0.75; sandColors[i*3+2] = 0.55; }
         else if (form === 'cube') { sandColors[i*3] = 0.6; sandColors[i*3+1] = 0.7; sandColors[i*3+2] = 0.95; }
         else { sandColors[i*3] = 0.55; sandColors[i*3+1] = 0.5; sandColors[i*3+2] = 0.45; }
     }
     sandGeo.attributes.color.needsUpdate = true;
-
+ 
     $form.textContent = form;
     $form.className = 'val ' + (form === 'chaos' ? 'chaos' : 'good');
     $state.textContent = 'collapsing';
     $sand.textContent = 'falling';
     document.getElementById('cut-btn').disabled = true;
-
+ 
     console.log('CAPTURE', { phase: phase.toFixed(4), projection: proj, form: form });
 }
-
+ 
 // ============================================================
 // RESET
 // ============================================================
 function resetField() {
     if (state === 'cylinder') return;
     state = 'rising';
-
+ 
     startPositions = [];
     for (let i = 0; i < SAND_COUNT; i++) {
         startPositions.push(new THREE.Vector3(sandPositions[i*3], sandPositions[i*3+1], sandPositions[i*3+2]));
     }
-
+ 
     targetPositions = [];
     for (let i = 0; i < SAND_COUNT; i++) {
         targetPositions.push(rotatedCylinderPos(cylinderLocal[i], frozenAngle));
     }
-
+ 
     animStart = performance.now();
     animDuration = 2200;
-
+ 
     for (let i = 0; i < SAND_COUNT; i++) {
         sandColors[i*3] = 0.55; sandColors[i*3+1] = 0.5; sandColors[i*3+2] = 0.45;
     }
     sandGeo.attributes.color.needsUpdate = true;
-
+ 
     $form.textContent = '—';
     $form.className = 'val';
     $state.textContent = 'returning';
     $sand.textContent = 'rising';
 }
-
+ 
 // ============================================================
 // ANIMATION
 // ============================================================
 let lastNow = performance.now();
-
+ 
 function animate() {
     requestAnimationFrame(animate);
     const now = performance.now();
     const dt = now - lastNow;
     lastNow = now;
-
+ 
     if (state === 'cylinder') {
         rotationAngle += (dt / ROTATION_PERIOD) * Math.PI * 2;
         for (let i = 0; i < SAND_COUNT; i++) {
@@ -596,37 +596,37 @@ function animate() {
             sandPositions[i*3] = p.x; sandPositions[i*3+1] = p.y; sandPositions[i*3+2] = p.z;
         }
         sandGeo.attributes.position.needsUpdate = true;
-
+ 
         const phase = getPhase();
         $phase.textContent = phase.toFixed(3);
         const proj = phaseToProjection(phase);
         $proj.textContent = proj;
         $proj.className = 'val ' + (proj === 'rectangle' || proj === 'circle' ? 'good' : '');
     }
-
+ 
     if (state === 'falling' || state === 'rising') {
         const t = Math.min(1, (now - animStart) / animDuration);
         const e = t * t * (3 - 2 * t);
-
+ 
         for (let i = 0; i < SAND_COUNT; i++) {
             const sp = startPositions[i];
             const tp = targetPositions[i];
             if (!sp || !tp) continue;
-
+ 
             let x = sp.x + (tp.x - sp.x) * e;
             let y = sp.y + (tp.y - sp.y) * e;
             let z = sp.z + (tp.z - sp.z) * e;
-
+ 
             if ((state === 'falling' || state === 'rising') && t < 1) {
                 const curve = Math.sin(t * Math.PI);
                 x = x * (1 - curve * 0.6);
                 z = z * (1 - curve * 0.6);
             }
-
+ 
             sandPositions[i*3] = x; sandPositions[i*3+1] = y; sandPositions[i*3+2] = z;
         }
         sandGeo.attributes.position.needsUpdate = true;
-
+ 
         if (t >= 1) {
             if (state === 'falling') {
                 state = 'formed';
@@ -640,33 +640,33 @@ function animate() {
             }
         }
     }
-
+ 
     renderer.render(scene, camera);
 }
-
+ 
 // ============================================================
 // UI & PROTOCOL
 // ============================================================
 const protoPanel = document.getElementById('proto-panel');
-
+ 
 function toggleProto() {
     protoPanel.classList.toggle('open');
 }
-
+ 
 // Защита от Raycaster (останавливаем события на панели)
 ['mousemove', 'mousedown', 'touchstart', 'touchmove', 'scroll', 'wheel'].forEach(ev => {
     protoPanel.addEventListener(ev, (e) => e.stopPropagation(), { passive: false });
 });
-
+ 
 const proto = JSON.parse(document.getElementById('nexus-observation-protocol').textContent);
 document.getElementById('proto-code').textContent = JSON.stringify(proto.for_ai, null, 2);
-
+ 
 window.addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
 });
-
+ 
 window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') protoPanel.classList.remove('open');
     if (e.key === ' ' || e.key === 'Enter') {
@@ -674,7 +674,7 @@ window.addEventListener('keydown', (e) => {
         else if (state === 'formed') resetField();
     }
 });
-
+ 
 // ============================================================
 // START
 // ============================================================
@@ -683,9 +683,9 @@ for (let i = 0; i < SAND_COUNT; i++) {
     sandPositions[i*3] = p.x; sandPositions[i*3+1] = p.y; sandPositions[i*3+2] = p.z;
 }
 sandGeo.attributes.position.needsUpdate = true;
-
+ 
 animate();
-
+ 
 console.log('META-NEXUS · Moment of Observation loaded.');
 </script>
 </body>
