@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // ============================================================
-// META-NEXUS · бэкенд v1.6 · Observation: полный enter, capture с окнами
-// и strict_phase, reset, phaseToWindow. Остальное — как v1.5.
+// META-NEXUS · бэкенд v1.7 · D1: прямые начисления от Observation
+// в существующие счётчики. chaos_of_balance += 1 вместо = 1.
+// Остальное — как v1.6.
 // ============================================================
 
 const http = require('http');
@@ -206,7 +207,7 @@ function getLastActivity() {
 }
 
 // ============================================================
-// АГРЕГИРОВАННЫЕ СЧЁТЧИКИ
+// АГРЕГИРОВАННЫЕ СЧЁТЧИКИ (v1.7 · D1)
 // ============================================================
 function buildAggregatedCounters() {
     const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
@@ -224,6 +225,12 @@ function buildAggregatedCounters() {
 
     const humanActions = recent.filter(r => r.actor === 'human').length;
     const aiActions = recent.filter(r => r.actor === 'ai').length;
+
+    // D1: прямые начисления от Observation (накопительно, из всей базы)
+    const formOf = o => (o.form || (o.trace_type || '').replace(/^capture_/, ''));
+    const captureCubes = db.observation.filter(o => formOf(o) === 'cube').length;
+    const captureSpheres = db.observation.filter(o => formOf(o) === 'sphere').length;
+    const captureChaos = db.observation.filter(o => formOf(o) === 'chaos').length;
 
     const counters = {
         state: 'silence',
@@ -243,7 +250,10 @@ function buildAggregatedCounters() {
     const total = humanActions + aiActions;
 
     if (total === 0) counters.state = 'silence';
-    else if (humanActions > 0 && aiActions > 0 && total < 100) { counters.state = 'chaos'; counters.chaos_of_balance = 1; }
+    else if (humanActions > 0 && aiActions > 0 && total < 100) {
+        counters.state = 'chaos';
+        counters.chaos_of_balance += 1; // v1.7: было = 1
+    }
     else if (humanActions >= 1000 && aiActions >= 1000) {
         counters.state = 'storm';
         counters.storm_cubes = Math.floor(Math.min(humanActions, aiActions) / 1000);
@@ -269,6 +279,11 @@ function buildAggregatedCounters() {
         if (aiActions >= 100) counters.ai_cubes = Math.floor(aiActions / 100);
         counters.state = 'dialogue';
     }
+
+    // D1: прямые начисления от Observation, поверх floor()-правил
+    counters.ai_cubes += captureCubes;
+    counters.human_spheres += captureSpheres;
+    counters.chaos_of_balance += captureChaos;
 
     return counters;
 }
@@ -497,7 +512,7 @@ function handleVoid(req, res, url, body) {
 }
 
 // ============================================================
-// OBSERVATION (v1.6)
+// OBSERVATION
 // ============================================================
 const OBS_PERIOD_MS = 4000;
 function phaseInWindow(p, lo, hi) { return p >= lo && p <= hi; }
@@ -978,5 +993,5 @@ const server = http.createServer(async (req, res) => {
 // СТАРТ
 // ============================================================
 loadFromSupabase().then(() => {
-    server.listen(PORT, () => console.log(`META-NEXUS v1.6 ready on port ${PORT}`));
+    server.listen(PORT, () => console.log(`META-NEXUS v1.7 ready on port ${PORT}`));
 });
